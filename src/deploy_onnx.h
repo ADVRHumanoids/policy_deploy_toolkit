@@ -1,8 +1,16 @@
-#ifndef __DEPLOY_ONNX_H__
-#define __DEPLOY_ONNX_H__
+#ifndef XBOT2_DEPLOY_POLICY_DEPLOY_ONNX_H
+#define XBOT2_DEPLOY_POLICY_DEPLOY_ONNX_H
 
-#include <Eigen/Dense>
 #include <onnxruntime/onnxruntime_cxx_api.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "types.h"
+#include "obs_term.h"
+#include "action_term.h"
 
 namespace XBot::policy {
 
@@ -10,57 +18,58 @@ class OnnxPolicy {
 
 public:
 
-typedef Eigen::Ref<const Eigen::VectorXd> VectorXdConstRef;
-
 OnnxPolicy(std::string model_path,
            std::string model_metadata_path, 
-           Eigen::Affine3d base_T_imu = Eigen::Affine3d::Identity())
-{
+           RobotInfo robot_info);
 
-}
+PolicyInfo policyInfo() const;
 
-void init()
-{
-
-}
-
-struct Inputs {
-    VectorXdConstRef q; 
-    VectorXdConstRef v; 
-    VectorXdConstRef tau;
-    VectorXdConstRef q_ref;
-    VectorXdConstRef v_ref;
-    VectorXdConstRef tau_ref;
-    VectorXdConstRef k;
-    VectorXdConstRef d;
-    Eigen::Quaterniond w_R_imu;
-    Eigen::Vector3d imu_omega;
-    Eigen::Vector3d imu_acc;
-};
-
-struct Outputs {
-    Eigen::VectorXd q_des;
-    Eigen::VectorXd v_des;
-    Eigen::VectorXd tau_des;
-    Eigen::VectorXd k_des;
-    Eigen::VectorXd d_des;
-};
-
-bool run(const Inputs& inputs, Outputs& outputs)
-{
-    // TODO(alaurenzi) fill policy input from arguments
-
-    // TODO(alaurenzi) run the policy and fill the output variables
-
-    return true;
-}
+bool run(const Inputs& inputs, Outputs& outputs);
 
 private:
 
+struct TensorBuffer {
+    std::string name;
+    ONNXTensorElementDataType element_type;
+    std::vector<int64_t> model_shape;
+    std::vector<int64_t> shape;
+    std::vector<float> buffer;
+};
 
+void init_onnxruntime();
+
+static TensorBuffer _makeTensorBuffer(const char* name, const Ort::TypeInfo& type_info);
+static void _printTensorInfo(const char* role, std::size_t index, const TensorBuffer& tensor);
+static std::string _shapeToString(const std::vector<int64_t>& shape);
+static const char* _tensorElementTypeName(ONNXTensorElementDataType type);
+static std::vector<int64_t> _concreteShape(const std::vector<int64_t>& model_shape);
+static std::size_t _elementCount(const std::vector<int64_t>& shape);
+
+void _refreshNamePointers();
+void _fillInputBuffers(const Inputs& inputs);
+void _fillOutputs(Outputs& outputs);
+
+std::string _model_path;
+std::string _model_metadata_path;
+Eigen::Affine3d _base_T_imu;
+
+Ort::Env _env;
+Ort::SessionOptions _session_options;
+Ort::Session _session;
+Ort::MemoryInfo _memory_info;
+
+std::vector<TensorBuffer> _input_tensors;
+std::vector<TensorBuffer> _output_tensors;
+std::vector<const char*> _input_name_ptrs;
+std::vector<const char*> _output_name_ptrs;
+bool _initialized{false};
+
+std::vector<std::unique_ptr<ObsTerm>> _obs_terms;
+std::vector<std::unique_ptr<ActionTerm>> _action_terms;
+PolicyInfo _policy_info;
 
 };
 
 }
 
-#endif // __DEPLOY_ONNX_H__
+#endif // XBOT2_DEPLOY_POLICY_DEPLOY_ONNX_H
