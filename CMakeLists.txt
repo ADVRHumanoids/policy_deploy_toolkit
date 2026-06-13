@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(xbot2_mujoco LANGUAGES CXX)
+project(policy_deploy_toolkit LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 
