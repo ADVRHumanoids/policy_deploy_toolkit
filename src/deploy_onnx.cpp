@@ -389,21 +389,25 @@ void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
         Eigen::VectorXd term_output;
         obs_term->process(inputs, term_output);
 
-        std::cout << "Obs term output: " << term_output.transpose().format(2) << std::endl;
+        //std::cout << "Obs term output: " << term_output.transpose().format(2) << std::endl;
 
         std::copy_n(term_output.data(), term_output.size(), tensor.buffer.data() + buffer_offset);
         buffer_offset += term_output.size();
     }
 
     auto policy_input = Eigen::VectorXf::Map(tensor.buffer.data(), tensor.buffer.size());
-    std::cout << "Policy input: " << policy_input.transpose().format(2) << std::endl;
+    //std::cout << "Policy input: " << policy_input.transpose().format(2) << std::endl;
 }
 
 void OnnxPolicy::_fillOutputs(Outputs& outputs)
 {
     auto policy_output = Eigen::VectorXf::Map(_output_tensors.back().buffer.data(), _output_tensors.back().buffer.size());
-    std::cout << "Policy output: " << policy_output.transpose().format(2) << std::endl;
+    //std::cout << "Policy output: " << policy_output.transpose().format(2) << std::endl;
 
+    // set the raw action vector to the output, which is used as the last_action input in the next run
+    outputs.raw_action = policy_output.cast<double>();
+
+    // process each action term to fill the corresponding robot outputs
     auto& tensor = _output_tensors.back();
     int buffer_offset = 0;
     for(auto&& action_term : _action_terms)
@@ -411,7 +415,7 @@ void OnnxPolicy::_fillOutputs(Outputs& outputs)
         auto raw_action = Eigen::VectorXf::Map(tensor.buffer.data() + buffer_offset, action_term->size());
         buffer_offset += action_term->size();
 
-        std::cout << "Raw action term: " << raw_action.transpose().format(2) << std::endl;
+        //std::cout << "Raw action term: " << raw_action.transpose().format(2) << std::endl;
 
         action_term->process(raw_action.cast<double>(), outputs);
     }

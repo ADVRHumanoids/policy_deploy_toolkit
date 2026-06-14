@@ -45,18 +45,39 @@ ActionTerm::ActionTerm(RobotInfo robot_info, PolicyInfo policy_info, YAML::Node 
         joint_name_patterns.emplace_back(joint_name_regex, std::regex::ECMAScript | std::regex::optimize);
     }
 
-    _joint_ids.reserve(_policy_info.joint_names.size());
-    for(std::size_t policy_id = 0; policy_id < _policy_info.joint_names.size(); ++policy_id)
+    // for(std::size_t policy_id = 0; policy_id < _policy_info.joint_names.size(); ++policy_id)
+    // {
+    //     const auto& joint_name = _policy_info.joint_names[policy_id];
+    //     for(const auto& joint_name_pattern : joint_name_patterns)
+    //     {
+    //         if(std::regex_match(joint_name, joint_name_pattern))
+    //         {
+    //             _joint_ids.push_back(static_cast<int>(policy_id));
+    //             break;
+    //         }
+    //     }
+    // }
+
+    for(std::size_t i = 0; i < joint_name_patterns.size(); ++i)
     {
-        const auto& joint_name = _policy_info.joint_names[policy_id];
-        for(const auto& joint_name_pattern : joint_name_patterns)
+        const auto& pattern = joint_name_patterns[i];
+
+        int n_matching = 0;
+        for(std::size_t policy_id = 0; policy_id < _policy_info.joint_names.size(); ++policy_id)
         {
-            if(std::regex_match(joint_name, joint_name_pattern))
+            const auto& joint_name = _policy_info.joint_names[policy_id];
+            if(std::regex_match(joint_name, pattern))
             {
+                ++n_matching;
                 _joint_ids.push_back(static_cast<int>(policy_id));
-                break;
             }
         }
+        
+        if(n_matching == 0)
+        {
+            throw std::runtime_error("No joint name matches pattern: " + joint_names_regex[i]);
+        }
+
     }
 }
 

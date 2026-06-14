@@ -104,7 +104,7 @@ void ObsTerm::process(const Inputs& inputs, Eigen::VectorXd& output)
     if(_history_buffer.size() == 0)
     {
         _history_buffer.resize(size());
-        _history_buffer.setZero();
+        _history_buffer = term_output.replicate(_n_history, 1);
     }
 
     // Shift history and append new output

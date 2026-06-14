@@ -19,6 +19,18 @@ int main(int argc, char *argv[]) {
     auto robot = XBot::RobotInterface::getRobot(cfg);
     auto imu = robot->getImu("imu_link");
 
+    // v index to joint index (needed for control mode mapping)
+    // note: for simplicity, the policy only deals with v indices, whereas
+    // control modes are indexed by joint indices
+    std::vector<int> vid_to_jid(robot->getNv(), -1);
+    for(int jid = 0; jid < robot->getJointNum(); ++jid)    {
+        int vid = robot->getVIndexFromVName(robot->getJointNames()[jid]);
+        if(vid >= 0)
+        {
+            vid_to_jid[vid] = jid;
+        }
+    }
+
     // fill robot info for policy
     XBot::policy::RobotInfo robot_info;
     robot_info.joint_names = robot->getVNames();
@@ -32,9 +44,26 @@ int main(int argc, char *argv[]) {
     // construct policy wrapper inputs and outputs
     XBot::policy::Inputs inputs;
     XBot::policy::Outputs outputs(policy.policyInfo().action_size, robot_info.joint_names.size());
+    outputs.raw_action << 0.0615, -0.0950, -0.1676,  0.1068,  0.0219, -0.0349,  0.0375,  0.0192,
+        -0.1542,  0.1210, -0.0617,  0.1305;
 
     // buffers
     Eigen::VectorXd vec_nq(robot->getNq());
+    Eigen::Matrix<uint8_t, Eigen::Dynamic, 1> vec_nj(robot->getJointNum());
+    vec_nj.setZero();
+    
+    // map control modes (v index) to joint indices
+    auto fill_ctrl_mode = [&]() 
+    {
+        for(int vi = 0; vi < robot->getNv(); ++vi)
+        {
+            int jid = vid_to_jid[vi];
+            if(jid >= 0)
+            {
+                vec_nj(jid) = outputs.ctrl_mode(vi);
+            }
+        }
+    };
 
     auto loop_start = std::chrono::steady_clock::now();
 
@@ -50,7 +79,7 @@ int main(int argc, char *argv[]) {
         
         // fill inputs for policy
         inputs.last_action = outputs.raw_action; // for the first iteration, last action is zero
-        inputs.command["base_velocity"] = Eigen::Vector3d(0.1, 0.2, 0.3);
+        inputs.command["base_velocity"] = Eigen::Vector3d(0.5, 0.0, 0.5);
         inputs.q = robot->getJointPositionMinimal();
         inputs.v = robot->getJointVelocity();
         inputs.tau = robot->getJointEffort();
@@ -66,8 +95,11 @@ int main(int argc, char *argv[]) {
         // run policy
         policy.run(inputs, outputs);
 
+        //
+        fill_ctrl_mode();
+
         // send commands to robot
-        robot->setControlMode(outputs.ctrl_mode);
+        robot->setControlMode(vec_nj);
         robot->minimalToPosition(outputs.q_des, vec_nq);
         robot->setPositionReference(vec_nq);
         robot->setVelocityReference(outputs.v_des);
@@ -79,7 +111,7 @@ int main(int argc, char *argv[]) {
             robot->setStiffness(outputs.k_des);
             robot->setDamping(outputs.d_des);
         }
-        robot->setCommandTimestamp(robot->getStateTimestamp());        
+        // robot->setCommandTimestamp(robot->getStateTimestamp());        
         robot->move();
 
         // wait for next control cycle
