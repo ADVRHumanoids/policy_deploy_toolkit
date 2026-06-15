@@ -6,11 +6,9 @@
 #include <set>
 #include <stdexcept>
 #include <utility>
+#include <iostream>
 
 namespace {
-
-constexpr auto kKyonIsaacVelocityCommand =
-    "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand";
 
 std::pair<double, double> parse_range(const YAML::Node& ranges,
                                       const std::string& command_name,
@@ -77,7 +75,7 @@ std::unique_ptr<CommandTerm> CommandTerm::create(std::string name,
                                                  PolicyInfo policy_info,
                                                  YAML::Node config)
 {
-    if(class_type == kKyonIsaacVelocityCommand)
+    if(class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand")
     {
         return std::make_unique<KyonIsaacVelocityCommand>(
             std::move(robot_info),
@@ -181,12 +179,17 @@ KyonIsaacVelocityCommand::KyonIsaacVelocityCommand(RobotInfo robot_info,
                                                    YAML::Node config):
     CommandTerm(std::move(name), std::move(class_type), std::move(robot_info), std::move(policy_info), config)
 {
-    const std::vector<std::string> fields{"lin_vel_x", "lin_vel_y", "ang_vel_z"};
     auto ranges = config["ranges"];
     if(!ranges || !ranges.IsMap())
     {
         throw std::runtime_error(
             std::format("Command '{}' must define a ranges map", _spec.name));
+    }
+    
+    std::vector<std::string> fields;
+    for(auto field : ranges)
+    {
+        fields.push_back(field.first.as<std::string>());
     }
 
     reject_unknown_ranges(ranges, _spec.name, fields);
@@ -198,6 +201,10 @@ KyonIsaacVelocityCommand::KyonIsaacVelocityCommand(RobotInfo robot_info,
         const auto [range_min, range_max] = parse_range(ranges, _spec.name, fields[i]);
         min(static_cast<int>(i)) = range_min;
         max(static_cast<int>(i)) = range_max;
+
+        // print the parsed range for debugging
+        std::cout << std::format("Command '{}', field '{}': min={}, max={}\n", 
+            _spec.name, fields[i], range_min, range_max);
     }
 
     set_fields(fields, std::move(min), std::move(max), Eigen::VectorXd::Zero(fields.size()));

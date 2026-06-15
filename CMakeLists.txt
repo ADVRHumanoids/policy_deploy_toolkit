@@ -55,6 +55,11 @@ install(DIRECTORY examples/
     DESTINATION share/${PROJECT_NAME}/examples
 )
 
+# install launch files
+install(DIRECTORY launch/
+    DESTINATION share/${PROJECT_NAME}/launch
+)   
+
 include(CTest)
 
 if(BUILD_TESTING)
@@ -69,3 +74,6 @@ if(BUILD_TESTING)
 
     add_test(NAME command_term_test COMMAND command_term_test)
 endif()
+
+
+ament_package()

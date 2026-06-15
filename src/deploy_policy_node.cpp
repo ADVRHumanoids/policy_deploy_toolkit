@@ -73,15 +73,15 @@ private:
 
     void create_velocity_subscription(const std::string& name)
     {
-        using Message = geometry_msgs::msg::TwistStamped;
+        using Message = geometry_msgs::msg::Twist;
 
         const auto topic = "~/commands/" + name;
         auto subscription = _node.create_subscription<Message>(
             topic,
-            rclcpp::QoS(1),
+            rclcpp::QoS(1).best_effort(),
             [this, name](Message::ConstSharedPtr msg) {
                 Eigen::VectorXd raw(3);
-                raw << msg->twist.linear.x, msg->twist.linear.y, msg->twist.angular.z;
+                raw << msg->linear.x, msg->linear.y, msg->angular.z;
                 store_command(name, raw);
             });
 
@@ -96,7 +96,7 @@ private:
         const auto topic = "~/commands/" + name + "/raw";
         auto subscription = _node.create_subscription<Message>(
             topic,
-            rclcpp::QoS(1),
+            rclcpp::QoS(1).best_effort(),
             [this, name](Message::ConstSharedPtr msg) {
                 Eigen::VectorXd raw(static_cast<int>(msg->data.size()));
                 for(int i = 0; i < raw.size(); ++i)
@@ -149,7 +149,7 @@ private:
 class PolicyDeployNode final : public rclcpp::Node {
 public:
     PolicyDeployNode()
-        : rclcpp::Node("xbot2_deploy_policy")
+        : rclcpp::Node("policy_deploy_node")
     {
     }
 
