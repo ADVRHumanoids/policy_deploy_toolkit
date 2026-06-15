@@ -1,4 +1,5 @@
 <launch>
+      
     <arg name="example" default="kyon_full_locomotion_flat"/>
     <arg name="enable_joy" default="false"/>
     <let name="example_dir" value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)"/>
@@ -23,6 +24,5 @@
         <param name="scale_linear.x" value="1.0"/>
         <param name="scale_angular.yaw" value="1.0"/>
     </node>
-
     
 </launch>

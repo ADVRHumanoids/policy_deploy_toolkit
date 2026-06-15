@@ -32,9 +32,8 @@ forest grow xbot2_policy_toolkit -j4
 Start the robot or simulator that provides the XBot2 interface and `xbotcore/` parameters, then run:
 
 ```bash
-./build/deploy_onnx \
-  example/kyon_full_locomotion/policy.onnx \
-  example/kyon_full_locomotion/deploy-metadata.yaml
+ros2 launch policy_deploy_toolkit run_example.launch.xml  # [enable_joy:=true] [example:=kyon_full_locomotion_rough] (defaults to kyon_full_locomotion_flat)
 ```
 
 The executable runs a control loop, feeds the policy from the current robot state, and sends the resulting command back through `RobotInterface`.
+Commands are received through the `/policy_deploy_node/commands/<command-name>` topic. 
