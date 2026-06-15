@@ -29,6 +29,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
 {
     init_onnxruntime();
 
+    // Load the metadata file, which contains the policy info and observation/action configs.
     auto md = YAML::LoadFile(_model_metadata_path);
 
     // policy info to fill
@@ -42,6 +43,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     policy_info.stiffness = md["joint_stiffness"].as<std::vector<double>>();
     policy_info.damping = md["joint_damping"].as<std::vector<double>>();
 
+    // map policy joint names to robot joint indices and vice versa
     std::unordered_map<std::string, int> robot_joint_ids;
     robot_joint_ids.reserve(robot_info.joint_names.size());
     for(std::size_t robot_id = 0; robot_id < robot_info.joint_names.size(); ++robot_id)
@@ -67,8 +69,16 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     for(auto pair : cmd_cfg) {
         auto name = pair.first.as<std::string>();
         auto config = pair.second;
-        auto ranges = config["ranges"];
-        policy_info.command_size[name] = ranges.size();
+        auto class_type = config["class_type"].as<std::string>();
+
+        auto command_term = CommandTerm::create(name, class_type, robot_info, policy_info, config);
+        policy_info.command_size[name] = command_term->size();
+        _command_specs.push_back(command_term->spec());
+        std::cout << "Command: " << name
+                  << " class: " << class_type
+                  << " size: " << command_term->size()
+                  << std::endl;
+        _command_terms.push_back(std::move(command_term));
     }
 
     // parse observation configs
@@ -76,6 +86,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     int obs_size = 0;
 
     for(auto pair : obs_cfg) {
+        
         const auto name = pair.first.as<std::string>();
         const auto config = pair.second["cfg"];
 
@@ -136,6 +147,43 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
 PolicyInfo OnnxPolicy::policyInfo() const
 {
     return _policy_info;
+}
+
+const std::vector<CommandSpec>& OnnxPolicy::command_specs() const
+{
+    return _command_specs;
+}
+
+std::map<std::string, Eigen::VectorXd> OnnxPolicy::default_commands() const
+{
+    std::map<std::string, Eigen::VectorXd> commands;
+    for(const auto& command_term : _command_terms)
+    {
+        commands[command_term->spec().name] = command_term->spec().default_value;
+    }
+
+    return commands;
+}
+
+bool OnnxPolicy::sanitize_command(const std::string& name,
+                                  const Eigen::VectorXd& raw_command,
+                                  Eigen::VectorXd& sanitized_command,
+                                  std::string* reason) const
+{
+    for(const auto& command_term : _command_terms)
+    {
+        if(command_term->spec().name == name)
+        {
+            return command_term->sanitize(raw_command, sanitized_command, reason);
+        }
+    }
+
+    if(reason)
+    {
+        *reason = "Unknown command: " + name;
+    }
+
+    return false;
 }
 
 bool OnnxPolicy::run(const Inputs& inputs, Outputs& outputs)

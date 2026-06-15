@@ -1,16 +1,19 @@
 #ifndef XBOT2_DEPLOY_POLICY_DEPLOY_ONNX_H
 #define XBOT2_DEPLOY_POLICY_DEPLOY_ONNX_H
 
-#include <onnxruntime/onnxruntime_cxx_api.h>
+#include <onnxruntime_cxx_api.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "types.h"
 #include "obs_term.h"
 #include "action_term.h"
+#include "command_term.h"
 
 namespace XBot::policy {
 
@@ -19,10 +22,19 @@ class OnnxPolicy {
 public:
 
 OnnxPolicy(std::string model_path,
-           std::string model_metadata_path, 
+           std::string model_metadata_path,
            RobotInfo robot_info);
 
 PolicyInfo policyInfo() const;
+
+const std::vector<CommandSpec>& command_specs() const;
+
+std::map<std::string, Eigen::VectorXd> default_commands() const;
+
+bool sanitize_command(const std::string& name,
+                      const Eigen::VectorXd& raw_command,
+                      Eigen::VectorXd& sanitized_command,
+                      std::string* reason = nullptr) const;
 
 bool run(const Inputs& inputs, Outputs& outputs);
 
@@ -66,6 +78,8 @@ bool _initialized{false};
 
 std::vector<std::unique_ptr<ObsTerm>> _obs_terms;
 std::vector<std::unique_ptr<ActionTerm>> _action_terms;
+std::vector<std::unique_ptr<CommandTerm>> _command_terms;
+std::vector<CommandSpec> _command_specs;
 PolicyInfo _policy_info;
 
 };

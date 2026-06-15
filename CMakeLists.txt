@@ -3,26 +3,69 @@ project(policy_deploy_toolkit LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 
+find_package(ament_cmake REQUIRED)
 find_package(onnxruntime REQUIRED)
+find_package(yaml-cpp REQUIRED)
 find_package(xbot2 REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
-add_executable(deploy_onnx 
-    src/main.cpp 
-    src/deploy_onnx.cpp 
+# library
+add_library(policy_deploy_toolkit STATIC
+    src/deploy_onnx.cpp
     src/obs_term.cpp
     src/action_term.cpp
+    src/command_term.cpp
+)
+
+target_include_directories(policy_deploy_toolkit
+    PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(policy_deploy_toolkit
+    PUBLIC
+    Eigen3::Eigen
+    onnxruntime::onnxruntime
+    yaml-cpp::yaml-cpp
+)
+
+# node
+add_executable(deploy_policy_node
+    src/deploy_policy_node.cpp
     )
 
-target_link_libraries(deploy_onnx 
-    PRIVATE 
-    onnxruntime::onnxruntime 
-    xbot2::xbot2 
-    rclcpp::rclcpp 
+target_link_libraries(deploy_policy_node
+    PRIVATE
+    policy_deploy_toolkit
+    xbot2::xbot2
+    rclcpp::rclcpp
     std_msgs::std_msgs__rosidl_typesupport_cpp
+    geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
 )
 
-install(TARGETS deploy_onnx
+# install node
+install(TARGETS deploy_policy_node
     DESTINATION lib/${PROJECT_NAME}
 )
+
+# install examples
+install(DIRECTORY examples/
+    DESTINATION share/${PROJECT_NAME}/examples
+)
+
+include(CTest)
+
+if(BUILD_TESTING)
+    add_executable(command_term_test
+        test/command_term_test.cpp
+    )
+
+    target_link_libraries(command_term_test
+        PRIVATE
+        policy_deploy_toolkit
+    )
+
+    add_test(NAME command_term_test COMMAND command_term_test)
+endif()
