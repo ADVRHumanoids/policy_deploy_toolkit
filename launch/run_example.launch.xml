@@ -1,5 +1,5 @@
 <launch>
-    <arg name="example" default="kyon_full_locomotion"/>
+    <arg name="example" default="kyon_full_locomotion_flat"/>
     <arg name="enable_joy" default="false"/>
     <let name="example_dir" value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)"/>
 
