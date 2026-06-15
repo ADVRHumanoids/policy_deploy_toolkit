@@ -151,6 +151,14 @@ public:
     PolicyDeployNode()
         : rclcpp::Node("policy_deploy_node")
     {
+        _imu_name = declare_parameter<std::string>("imu_name", "imu_link");
+        _obs_group_override = declare_parameter<std::string>("obs_group_override", "");
+        _command_timeout_s = declare_parameter<double>("command_timeout_s", 0.5);
+
+        if(_command_timeout_s < 0.0)
+        {
+            throw std::runtime_error("Parameter 'command_timeout_s' must be non-negative");
+        }
     }
 
     void init(const std::string& model_path, const std::string& model_metadata_path)
@@ -158,12 +166,11 @@ public:
         // build robotinterface
         auto cfg = XBot::ConfigOptionsFromParams(shared_from_this(), "xbotcore/", 2s);
         _robot = XBot::RobotInterface::getRobot(cfg);
-        auto imu_name = get_parameter_or<std::string>("imu_name", "imu_link");
-        _imu = _robot->getImu(imu_name);
+        _imu = _robot->getImu(_imu_name);
         if(!_imu)
         {
             throw std::runtime_error(
-                std::format("IMU sensor '{}' not found in robot model", imu_name));
+                std::format("IMU sensor '{}' not found in robot model", _imu_name));
         }
 
         // v index to joint index (needed for control mode mapping)
@@ -184,19 +191,14 @@ public:
         _robot->getPose(_imu->getName(), "base_link", robot_info.base_T_imu);
 
         // build policy wrapper
-        _policy = std::make_unique<XBot::policy::OnnxPolicy>(model_path, model_metadata_path, robot_info);
+        _policy = std::make_unique<XBot::policy::OnnxPolicy>(model_path, model_metadata_path, _obs_group_override, robot_info);
 
         // construct policy wrapper outputs
         _outputs = std::make_unique<XBot::policy::Outputs>(
             _policy->policyInfo().action_size,
             robot_info.joint_names.size());
 
-        auto command_timeout_s = get_parameter_or<double>("command_timeout_s", 0.5);
-        if(command_timeout_s < 0.0)
-        {
-            throw std::runtime_error("Parameter 'command_timeout_s' must be non-negative");
-        }
-        _command_receiver = std::make_unique<RosCommandReceiver>(*this, *_policy, command_timeout_s);
+        _command_receiver = std::make_unique<RosCommandReceiver>(*this, *_policy, _command_timeout_s);
 
         // buffers
         _vec_nq.resize(_robot->getNq());
@@ -277,6 +279,9 @@ private:
 
     XBot::RobotInterface::UniquePtr _robot;
     XBot::ImuSensor::ConstPtr _imu;
+    std::string _imu_name;
+    std::string _obs_group_override;
+    double _command_timeout_s{0.0};
     std::unique_ptr<XBot::policy::OnnxPolicy> _policy;
     std::unique_ptr<RosCommandReceiver> _command_receiver;
     XBot::policy::Inputs _inputs;

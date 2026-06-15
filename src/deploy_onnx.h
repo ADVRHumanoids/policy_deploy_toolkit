@@ -23,6 +23,7 @@ public:
 
 OnnxPolicy(std::string model_path,
            std::string model_metadata_path,
+           std::string obs_group_override,
            RobotInfo robot_info);
 
 PolicyInfo policyInfo() const;

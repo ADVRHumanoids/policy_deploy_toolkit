@@ -14,6 +14,7 @@ namespace XBot::policy {
 
 OnnxPolicy::OnnxPolicy(std::string model_path,
            std::string model_metadata_path, 
+           std::string obs_group_override,
            RobotInfo robot_info)
     // Store paths/transforms up front; the ONNX session is opened lazily in init()
     // so construction stays cheap and errors happen when the caller explicitly starts the policy.
@@ -82,8 +83,22 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     }
 
     // parse observation configs
-    auto obs_cfg = md["observations"]["policy"];
+    std::string obs_group = "policy";
+    
+    if(auto n = md["default_obs_group"])
+    {
+        obs_group = n.as<std::string>();
+    }
+
+    if(!obs_group_override.empty())
+    {
+        obs_group = obs_group_override;
+    }
+
+    auto obs_cfg = md["observations"][obs_group];
     int obs_size = 0;
+
+    std::cout << std::format("Parsing observation group '{}' with {} terms\n", obs_group, obs_cfg.size());
 
     for(auto pair : obs_cfg) {
         
@@ -139,7 +154,8 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
                         action_size, policy_info.action_size));   
     }
 
-    std::cout << "Action size: " << policy_info.action_size << " Observation size: " << obs_size << std::endl;
+    std::cout << std::format("ctrl_dt: {} action_size: {} obs_size: {} (group: {}) \n", 
+        policy_info.control_dt, action_size, obs_size, obs_group) << std::endl;
 
     _policy_info = std::move(policy_info);
 }
