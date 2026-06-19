@@ -22,6 +22,7 @@ struct PolicyInfo {
     std::vector<int> joint_id_robot_to_policy;
     std::map<std::string, int> command_size;
     int action_size;
+    int height_scan_size;
 };
 
 struct Inputs {
@@ -41,6 +42,8 @@ struct Inputs {
     Eigen::Quaterniond w_R_imu;
     Eigen::Vector3d imu_omega;
     Eigen::Vector3d imu_acc;
+
+    Eigen::VectorXd height_scan;
 };
 
 struct Outputs {

@@ -10,6 +10,8 @@ find_package(xbot2 REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(xbot2_diagnostics QUIET)
 
 # library
 add_library(policy_deploy_toolkit STATIC
@@ -39,11 +41,24 @@ add_executable(deploy_policy_node
 target_link_libraries(deploy_policy_node
     PRIVATE
     policy_deploy_toolkit
+    xbot2_diagnostics::xbot2_diagnostics_ros
     xbot2::xbot2
     rclcpp::rclcpp
     std_msgs::std_msgs__rosidl_typesupport_cpp
     geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
+    sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
 )
+
+if(xbot2_diagnostics_FOUND)
+    target_link_libraries(deploy_policy_node
+        PRIVATE
+        xbot2_diagnostics::xbot2_diagnostics
+    )
+    target_compile_definitions(deploy_policy_node
+        PRIVATE
+        -DHAS_XBOT2_DIAGNOSTICS
+    )
+endif()
 
 # install node
 install(TARGETS deploy_policy_node

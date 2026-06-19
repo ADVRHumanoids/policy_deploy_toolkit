@@ -43,6 +43,9 @@ protected:
 
     std::vector<int> _joint_ids;
     Eigen::VectorXd _history_buffer;
+    bool _has_clip{false};
+    double _clip_min{0.0};
+    double _clip_max{0.0};
 
 };
 
@@ -125,6 +128,20 @@ public:
 
     void process_impl(const Inputs& inputs, Eigen::VectorXd& output) override;
     
+};
+
+class KyonIsaacHeightScanObsTerm : public ObsTerm
+{
+public:
+
+    KyonIsaacHeightScanObsTerm(RobotInfo robot_info, PolicyInfo policy_info,
+                               YAML::Node config);
+
+    void process_impl(const Inputs& inputs, Eigen::VectorXd& output) override;
+
+private:
+
+    double _offset;
 };
 
 }

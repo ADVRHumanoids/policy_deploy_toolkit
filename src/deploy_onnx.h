@@ -14,6 +14,7 @@
 #include "obs_term.h"
 #include "action_term.h"
 #include "command_term.h"
+#include "sensor.h"
 
 namespace XBot::policy {
 
@@ -29,6 +30,8 @@ OnnxPolicy(std::string model_path,
 PolicyInfo policyInfo() const;
 
 const std::vector<CommandSpec>& command_specs() const;
+
+const std::vector<SensorSpec>& sensor_specs() const;
 
 std::map<std::string, Eigen::VectorXd> default_commands() const;
 
@@ -81,6 +84,7 @@ std::vector<std::unique_ptr<ObsTerm>> _obs_terms;
 std::vector<std::unique_ptr<ActionTerm>> _action_terms;
 std::vector<std::unique_ptr<CommandTerm>> _command_terms;
 std::vector<CommandSpec> _command_specs;
+std::vector<SensorSpec> _sensor_specs;
 PolicyInfo _policy_info;
 
 };

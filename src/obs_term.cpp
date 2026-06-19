@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
+#include <iostream>
 
 namespace XBot::policy {
 
@@ -36,6 +37,11 @@ std::unique_ptr<ObsTerm> ObsTerm::create(std::string func, RobotInfo robot_info,
     {
         return std::make_unique<IsaacLabLastActionObsTerm>(robot_info, policy_info, config);
     }
+    else if(func == "isaaclab.envs.mdp.observations:height_scan" ||
+            func == "kyon_isaac.tasks.locomotion.velocity.mdp.observations:height_scan")
+    {
+        return std::make_unique<KyonIsaacHeightScanObsTerm>(robot_info, policy_info, config);
+    }
     else 
     {
         throw std::runtime_error("Unsupported observation function: " + func);
@@ -49,9 +55,23 @@ ObsTerm::ObsTerm(RobotInfo robot_info, PolicyInfo policy_info, YAML::Node config
         _policy_info(std::move(policy_info))
 {
     // sanity
-    if(auto n = config["clip"]; n.as<std::string>() != "null")
+    if(auto n = config["clip"])
     {
-        throw std::runtime_error("Clipping not supported for ObsTerms yet");
+        if(n.IsSequence())
+        {
+            const auto clip = n.as<std::vector<double>>();
+            if(clip.size() != 2)
+            {
+                throw std::runtime_error("ObsTerm clip must contain exactly two values");
+            }
+            _has_clip = true;
+            _clip_min = clip.at(0);
+            _clip_max = clip.at(1);
+        }
+        else if(n.as<std::string>() != "null")
+        {
+            throw std::runtime_error("Unsupported ObsTerm clip format");
+        }
     }
 
     if(auto n = config["scale"]; n.as<std::string>() != "null")
@@ -92,7 +112,10 @@ void ObsTerm::process(const Inputs& inputs, Eigen::VectorXd& output)
     Eigen::VectorXd term_output;
     process_impl(inputs, term_output);
 
-    // TODO: Apply scaling and clipping if needed (not implemented yet)
+    if(_has_clip)
+    {
+        term_output = term_output.cwiseMax(_clip_min).cwiseMin(_clip_max);
+    }
 
     if(_n_history == 1)
     {
@@ -220,4 +243,16 @@ void IsaacLabLastActionObsTerm::process_impl(const Inputs& inputs, Eigen::Vector
     output = inputs.last_action;
 }
 
+KyonIsaacHeightScanObsTerm::KyonIsaacHeightScanObsTerm(RobotInfo robot_info, 
+    PolicyInfo policy_info, 
+    YAML::Node config) : ObsTerm(robot_info, policy_info, config)
+{
+    _size = policy_info.height_scan_size;
+    _offset = config["params"]["offset"].as<double>();
+}
+
+void KyonIsaacHeightScanObsTerm::process_impl(const Inputs &inputs, Eigen::VectorXd &output)
+{
+    output = -inputs.height_scan.array() - _offset;
+}
 }

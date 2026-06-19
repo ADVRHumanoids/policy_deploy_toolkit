@@ -1,6 +1,7 @@
 #include "deploy_onnx.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
@@ -63,6 +64,36 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         const int robot_id = it->second;
         policy_info.joint_id_policy_to_robot[policy_id] = robot_id;
         policy_info.joint_id_robot_to_policy[robot_id] = static_cast<int>(policy_id);
+    }
+
+    // parse scene to get height scan size
+    policy_info.height_scan_size = 0;
+    if(auto scene = md["scene"]; scene && scene.IsMap())
+    {
+        for(auto pair : scene)
+        {
+            auto name = pair.first.as<std::string>();
+            auto config = pair.second;
+            if(!config.IsMap() || !config["class_type"])
+            {
+                continue;
+            }
+
+            auto class_type = config["class_type"].as<std::string>();
+
+            if(class_type == "kyon_isaac.sensors.ray_caster:KyonRayCaster")
+            {
+                const double pattern_resolution = config["pattern_cfg"]["resolution"].as<double>();
+                auto pattern_size = config["pattern_cfg"]["size"].as<std::pair<double, double>>();
+
+                policy_info.height_scan_size = (static_cast<int>(std::round(pattern_size.first / pattern_resolution)) + 1) *
+                                                (static_cast<int>(std::round(pattern_size.second / pattern_resolution)) + 1);
+
+                _sensor_specs.push_back(HeightScanSpec{name, class_type, policy_info.height_scan_size});
+
+                std::cout << std::format("[HeightScan] '{}' class: {} size: {}\n", name, class_type, policy_info.height_scan_size);
+            }
+        }
     }
 
     // parse commands config
@@ -168,6 +199,11 @@ PolicyInfo OnnxPolicy::policyInfo() const
 const std::vector<CommandSpec>& OnnxPolicy::command_specs() const
 {
     return _command_specs;
+}
+
+const std::vector<SensorSpec> &OnnxPolicy::sensor_specs() const
+{
+    return _sensor_specs;
 }
 
 std::map<std::string, Eigen::VectorXd> OnnxPolicy::default_commands() const
@@ -460,7 +496,7 @@ void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
     }
 
     auto policy_input = Eigen::VectorXf::Map(tensor.buffer.data(), tensor.buffer.size());
-    //std::cout << "Policy input: " << policy_input.transpose().format(2) << std::endl;
+    // std::cout << "Policy input: " << policy_input.transpose().format(2) << std::endl;
 }
 
 void OnnxPolicy::_fillOutputs(Outputs& outputs)
