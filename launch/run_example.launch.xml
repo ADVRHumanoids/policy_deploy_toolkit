@@ -1,28 +1,33 @@
 <launch>
-      
-    <arg name="example" default="kyon_full_locomotion_flat"/>
-    <arg name="enable_joy" default="false"/>
-    <let name="example_dir" value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)"/>
 
-    <node pkg="policy_deploy_toolkit"
-          exec="deploy_policy_node"
-          output="screen"
-          args="$(var example_dir)/policy.onnx $(var example_dir)/deploy-metadata.yaml"/>
+      <arg name="example" default="kyon_full_locomotion_flat" />
+      <arg name="enable_joy" default="false" />
+      <arg name="use_sim_time" default="true" />
 
-    <node pkg="joy"
-          exec="joy_node"
-          output="screen"
-          if="$(var enable_joy)"/>
+      <let name="example_dir"
+            value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
 
-    <node pkg="teleop_twist_joy"
-          exec="teleop_node"
-          output="screen"
-          if="$(var enable_joy)">
-        <remap from="/cmd_vel" to="/policy_deploy_node/commands/base_velocity"/>
-        <param name="axis_linear.x" value="1"/>
-        <param name="axis_angular.yaw" value="3"/>
-        <param name="scale_linear.x" value="1.0"/>
-        <param name="scale_angular.yaw" value="1.0"/>
-    </node>
-    
+      <node pkg="policy_deploy_toolkit"
+            exec="deploy_policy_node"
+            output="screen"
+            args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+      </node>
+
+      <node pkg="joy"
+            exec="joy_node"
+            output="screen"
+            if="$(var enable_joy)" />
+
+      <node pkg="teleop_twist_joy"
+            exec="teleop_node"
+            output="screen"
+            if="$(var enable_joy)">
+            <remap from="/cmd_vel" to="/policy_deploy_node/commands/base_velocity" />
+            <param name="axis_linear.x" value="1" />
+            <param name="axis_angular.yaw" value="3" />
+            <param name="scale_linear.x" value="1.0" />
+            <param name="scale_angular.yaw" value="1.0" />
+      </node>
+
 </launch>
