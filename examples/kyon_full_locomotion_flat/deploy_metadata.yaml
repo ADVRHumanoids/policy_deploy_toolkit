@@ -805,3 +805,4 @@ commands:
             opacity: 1.0
           usd_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/Props/UIElements/arrow_x.usd
           variants: null
+scene: {}
