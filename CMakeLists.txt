@@ -13,6 +13,9 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(xbot2_diagnostics QUIET)
 
+# options
+option(ENABLE_COMMAND_TIMESTAMPS "Enable timestamps for command messages (requires xbot2_interface 1.2.0+)" OFF)
+
 # library
 add_library(policy_deploy_toolkit STATIC
     src/deploy_onnx.cpp
@@ -57,6 +60,13 @@ if(xbot2_diagnostics_FOUND)
     target_compile_definitions(deploy_policy_node
         PRIVATE
         -DHAS_XBOT2_DIAGNOSTICS
+    )
+endif()
+
+if(ENABLE_COMMAND_TIMESTAMPS)
+    target_compile_definitions(deploy_policy_node
+        PRIVATE
+        -DENABLE_COMMAND_TIMESTAMPS
     )
 endif()
 

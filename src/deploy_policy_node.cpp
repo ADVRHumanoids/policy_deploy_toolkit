@@ -545,7 +545,9 @@ private:
             _robot->setStiffness(outputs.k_des);
             _robot->setDamping(outputs.d_des);
         }
+#ifdef ENABLE_COMMAND_TIMESTAMPS
         _robot->setCommandTimestamp(_robot->getStateTimestamp());
+#endif
         _robot->move();
     }
 
