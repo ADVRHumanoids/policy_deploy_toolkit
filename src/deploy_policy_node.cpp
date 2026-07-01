@@ -66,6 +66,7 @@ public:
             const bool stale = !state.has_value || (now - state.stamp).seconds() > _timeout_s;
             inputs.command[name] = stale ? _defaults.at(name) : state.value;
         }
+        _inputs = inputs;
     }
 
 private:
@@ -75,10 +76,13 @@ private:
         rclcpp::Time stamp;
         bool has_value{false};
     };
+    
+    XBot::policy::Inputs _inputs;
 
     static bool is_velocity_command(const XBot::policy::CommandSpec& spec)
     {
-        return spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand";
+        return spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand" ||
+               spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:TerrainBasedVelocityCommandPLAY";
     }
 
     void create_velocity_subscription(const std::string& name)
@@ -125,7 +129,7 @@ private:
     {
         Eigen::VectorXd sanitized;
         std::string reason;
-        if(!_policy.sanitize_command(name, raw, sanitized, &reason))
+        if(!_policy.sanitize_command(_inputs,name, raw, sanitized, &reason))
         {
             RCLCPP_WARN_THROTTLE(_node.get_logger(),
                                  *_node.get_clock(),

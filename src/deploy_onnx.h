@@ -35,7 +35,8 @@ const std::vector<SensorSpec>& sensor_specs() const;
 
 std::map<std::string, Eigen::VectorXd> default_commands() const;
 
-bool sanitize_command(const std::string& name,
+bool sanitize_command(const Inputs& inputs,
+                      const std::string& name,
                       const Eigen::VectorXd& raw_command,
                       Eigen::VectorXd& sanitized_command,
                       std::string* reason = nullptr) const;

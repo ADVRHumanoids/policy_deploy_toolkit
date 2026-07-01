@@ -18,6 +18,7 @@ struct PolicyInfo {
     std::vector<std::string> joint_names;
     std::vector<double> stiffness, damping;
     std::vector<double> joint_default_pos;
+    std::vector<double> joint_default_vel;
     std::vector<int> joint_id_policy_to_robot;
     std::vector<int> joint_id_robot_to_policy;
     std::map<std::string, int> command_size;

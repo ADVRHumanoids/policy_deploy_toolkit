@@ -45,7 +45,8 @@ public:
 
     const CommandSpec& spec() const;
 
-    bool sanitize(const Eigen::VectorXd& raw_command,
+    bool sanitize(const Inputs& inputs, 
+                  const Eigen::VectorXd& raw_command,
                   Eigen::VectorXd& sanitized_command,
                   std::string* reason = nullptr) const;
 
@@ -55,6 +56,15 @@ protected:
                     Eigen::VectorXd min,
                     Eigen::VectorXd max,
                     Eigen::VectorXd default_value);
+
+    virtual bool post_process(const Inputs& inputs, 
+                             const Eigen::VectorXd& command,
+                             Eigen::VectorXd& post_processed_command,
+                             std::string* reason = nullptr) const
+    {
+        // Default implementation: no additional checks
+        return true;
+    }
 
     CommandSpec _spec;
     RobotInfo _robot_info;
@@ -76,6 +86,27 @@ public:
                              YAML::Node config);
 
 private:
+};
+
+class KyonIsaacTerrainBasedVelocityCommand : public KyonIsaacVelocityCommand
+{
+public:
+
+    KyonIsaacTerrainBasedVelocityCommand(RobotInfo robot_info,
+                                         PolicyInfo policy_info,
+                                         std::string name,
+                                         std::string class_type,
+                                         YAML::Node config);
+
+    bool post_process(const Inputs& inputs, 
+                      const Eigen::VectorXd& command,
+                      Eigen::VectorXd& post_processed_command,
+                      std::string* reason = nullptr) const override;
+
+private:
+    double compute_terrain_difficulty(const Eigen::VectorXd height_scan) const;
+
+    YAML::Node _config;
 };
 
 }

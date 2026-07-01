@@ -37,6 +37,14 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     // policy info to fill
     PolicyInfo policy_info;
     policy_info.joint_default_pos = md["default_joint_pos"].as<std::vector<double>>();
+    if(md["default_joint_vel"])
+    {
+        policy_info.joint_default_vel = md["default_joint_vel"].as<std::vector<double>>();
+    }
+    else
+    {
+        policy_info.joint_default_vel.assign(policy_info.joint_default_pos.size(), 0.0);
+    }
     policy_info.joint_names = md["joint_names"].as<std::vector<std::string>>();
     policy_info.action_size = _output_tensors.back().buffer.size();
     policy_info.joint_id_policy_to_robot.resize(policy_info.joint_names.size());
@@ -217,7 +225,8 @@ std::map<std::string, Eigen::VectorXd> OnnxPolicy::default_commands() const
     return commands;
 }
 
-bool OnnxPolicy::sanitize_command(const std::string& name,
+bool OnnxPolicy::sanitize_command(const Inputs& inputs, 
+                                  const std::string& name,
                                   const Eigen::VectorXd& raw_command,
                                   Eigen::VectorXd& sanitized_command,
                                   std::string* reason) const
@@ -226,7 +235,7 @@ bool OnnxPolicy::sanitize_command(const std::string& name,
     {
         if(command_term->spec().name == name)
         {
-            return command_term->sanitize(raw_command, sanitized_command, reason);
+            return command_term->sanitize(inputs, raw_command, sanitized_command, reason);
         }
     }
 
