@@ -60,6 +60,23 @@ private:
 
 };
 
-}
+class IsaacLabJointVelocityActionTerm : public ActionTerm
+{
+public:
+
+    IsaacLabJointVelocityActionTerm(RobotInfo robot_info, 
+                                    PolicyInfo policy_info,
+                                    YAML::Node config);
+
+    void process_impl(const Eigen::VectorXd& raw_action, Outputs& outputs) override;
+
+private:
+
+    double _offset;
+    double _scale;
+    
+};
+
+} // namespace XBot::policy
 
 #endif // __XBOT2_DEPLOY_POLICY_ACTION_TERM_H

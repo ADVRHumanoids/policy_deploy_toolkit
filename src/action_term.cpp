@@ -15,6 +15,10 @@ std::unique_ptr<ActionTerm> XBot::policy::ActionTerm::create(std::string func,
     {
         return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
     } 
+    else if(func == "isaaclab.envs.mdp.actions.joint_actions:JointVelocityAction") 
+    {
+        return std::make_unique<IsaacLabJointVelocityActionTerm>(robot_info, policy_info, config);
+    }
     else 
     {
         throw std::runtime_error("Unsupported observation function: " + func);
@@ -115,5 +119,25 @@ void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &raw_ac
         outputs.k_des(robot_id) = _policy_info.stiffness[policy_id];
         outputs.d_des(robot_id) = _policy_info.damping[policy_id];
         outputs.ctrl_mode(robot_id) |= (1 + 8 + 16); // position + stiffness + damping
+    }
+}
+
+IsaacLabJointVelocityActionTerm::IsaacLabJointVelocityActionTerm(RobotInfo robot_info, 
+    PolicyInfo policy_info, YAML::Node config):
+    ActionTerm(std::move(robot_info), std::move(policy_info), config)
+{
+    _size = _joint_ids.size();
+    _scale = config["scale"].as<double>(1.0);
+    _offset = config["offset"].as<double>(0.0);
+}
+
+void IsaacLabJointVelocityActionTerm::process_impl(const Eigen::VectorXd &raw_action, Outputs &outputs)
+{
+    for(std::size_t i = 0; i < _joint_ids.size(); ++i)
+    {
+        int policy_id = _joint_ids[i];
+        int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        outputs.v_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_vel[policy_id] + _offset;
+        outputs.ctrl_mode(robot_id) |= 2; // velocity
     }
 }
