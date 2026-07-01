@@ -12,6 +12,7 @@
             output="screen"
             args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
             <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
       </node>
 
       <node pkg="joy"
