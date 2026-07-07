@@ -26,9 +26,11 @@
             if="$(var enable_joy)">
             <remap from="/cmd_vel" to="/policy_deploy_node/commands/base_velocity" />
             <param name="axis_linear.x" value="1" />
+            <param name="axis_linear.y" value="0" />
             <param name="axis_angular.yaw" value="3" />
-            <param name="scale_linear.x" value="1.0" />
-            <param name="scale_angular.yaw" value="1.0" />
+            <param name="scale_linear.x" value="1.5" />
+            <param name="scale_linear.y" value="1.5" />
+            <param name="scale_angular.yaw" value="1.5" />
       </node>
 
 </launch>
