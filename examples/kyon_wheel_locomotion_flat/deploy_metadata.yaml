@@ -17,12 +17,16 @@ joint_stiffness:
 - 600
 - 100
 - 100
-- 0
-- 0
-- 0
-- 0
 - 100
 - 100
+- 100
+- 100
+- 100
+- 100
+- 0
+- 0
+- 0
+- 0
 - 100
 - 100
 - 100
@@ -46,12 +50,16 @@ joint_damping:
 - 10
 - 5
 - 5
-- 60
-- 60
-- 60
-- 60
 - 5
 - 5
+- 5
+- 5
+- 5
+- 5
+- 60
+- 60
+- 60
+- 60
 - 5
 - 5
 - 5
@@ -85,7 +93,15 @@ default_joint_pos:
 - 0.0
 - 0.0
 - 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
 default_joint_vel:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
 - 0.0
 - 0.0
 - 0.0
@@ -133,12 +149,16 @@ joint_names:
 - knee_pitch_4
 - elbow_pitch_1
 - elbow_pitch_2
+- ankle_yaw_1
+- ankle_yaw_2
+- ankle_yaw_3
+- ankle_yaw_4
+- wrist_pitch_1
+- wrist_pitch_2
 - wheel_joint_1
 - wheel_joint_2
 - wheel_joint_3
 - wheel_joint_4
-- wrist_pitch_1
-- wrist_pitch_2
 - wrist_yaw_1
 - wrist_yaw_2
 - dagana_1_clamp_joint
@@ -334,10 +354,10 @@ observations:
             - 13
             - 14
             - 15
-            - 18
-            - 19
-            - 20
-            - 21
+            - 24
+            - 25
+            - 26
+            - 27
             fixed_tendon_names: null
             fixed_tendon_ids: !!python/object/apply:builtins.slice
             - null
@@ -559,10 +579,10 @@ observations:
             - 13
             - 14
             - 15
-            - 18
-            - 19
-            - 20
-            - 21
+            - 24
+            - 25
+            - 26
+            - 27
             fixed_tendon_names: null
             fixed_tendon_ids: !!python/object/apply:builtins.slice
             - null
@@ -680,10 +700,10 @@ observations:
             body_names:
             - wheel_.*
             body_ids:
-            - 6
-            - 10
-            - 14
-            - 18
+            - 7
+            - 12
+            - 17
+            - 22
             object_collection_names: null
             object_collection_ids: !!python/object/apply:builtins.slice
             - null
@@ -719,10 +739,10 @@ observations:
             - 13
             - 14
             - 15
-            - 18
-            - 19
-            - 20
-            - 21
+            - 24
+            - 25
+            - 26
+            - 27
             fixed_tendon_names: null
             fixed_tendon_ids: !!python/object/apply:builtins.slice
             - null
@@ -918,7 +938,7 @@ scene:
       joint_drive_props: null
       visual_material_path: material
       visual_material: null
-      usd_path: /workspace/kyon_isaac/source/kyon_isaac/kyon_isaac/assets/kyon_full_simple_wheels.usd
+      usd_path: /workspace/kyon_isaac/source/kyon_isaac/kyon_isaac/assets/kyon_full_wheels.usd
       variants: null
     init_state:
       pos: !!python/tuple
@@ -951,6 +971,10 @@ scene:
         knee_pitch_2: -1.4
         knee_pitch_3: 1.4
         knee_pitch_4: -1.4
+        ankle_yaw_1: 0.0
+        ankle_yaw_2: 0.0
+        ankle_yaw_3: 0.0
+        ankle_yaw_4: 0.0
         wheel_joint_1: 0.0
         wheel_joint_2: 0.0
         wheel_joint_3: 0.0
@@ -1011,6 +1035,7 @@ scene:
         joint_names_expr:
         - shoulder_yaw_.*
         - elbow_pitch_.*
+        - ankle_yaw_.*
         - dagana_.*
         effort_limit: 122
         velocity_limit: 4.6
