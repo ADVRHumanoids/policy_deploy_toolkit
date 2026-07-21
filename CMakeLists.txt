@@ -75,6 +75,10 @@ install(TARGETS deploy_policy_node
     DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS scripts/load_policy.py
+    DESTINATION lib/${PROJECT_NAME}
+)
+
 # install examples
 install(DIRECTORY examples/
     DESTINATION share/${PROJECT_NAME}/examples
