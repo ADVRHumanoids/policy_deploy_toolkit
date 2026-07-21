@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import rclpy
@@ -36,17 +36,13 @@ class LoadPolicyNode(Node):
         self.__joint_names = message.name
 
         if 'ankle_yaw_1' in self.__joint_names:
-            self.get_logger().info("Steering wheel configuration loaded successfully")
             self.__steering_wheels = True
         elif 'wheel_joint_1' in self.__joint_names and 'ankle_yaw_1' not in self.__joint_names:
-            self.get_logger().info("Simple wheel configuration loaded successfully")
             self.__simple_wheels = True
         elif 'wheel_joint_1' not in self.__joint_names and 'ankle_yaw_1' not in self.__joint_names:
-            self.get_logger().info("Legged configuration loaded successfully")
             self.__legged = True
         
         if 'shoulder_yaw_1' in self.__joint_names:
-            self.get_logger().info("Arms configuration loaded successfully")
             self.__arms = True
 
         self.load_policy()
@@ -77,16 +73,24 @@ class LoadPolicyNode(Node):
         )
         policy_dir = examples_dir / self.__policy_name
         if not policy_dir.is_dir():
+            
             archive = f"{self.__policy_name}.zip"
             if TAG == "latest":
                 url = f"{RELEASES_URL}/latest/download/{archive}"
             else:
                 url = f"{RELEASES_URL}/download/{TAG}/{archive}"
 
+            print(f"Policy {self.__policy_name} not found, downloading from {url}...")
+
             subprocess.run(
                 ["wget", url, "-O", archive], cwd=examples_dir, check=True
             )
-            shutil.unpack_archive(examples_dir / archive, policy_dir)
+            subprocess.run(
+                ["unzip", archive, "-d", policy_dir],
+                cwd=examples_dir,
+                stdout=sys.stderr,
+                check=True,
+            )
 
     def get_policy_name(self):
         return self.__policy_name
@@ -106,24 +110,24 @@ def main():
     topics = dict(node.get_topic_names_and_types())
     if TOPIC not in topics:
         node.get_logger().error(f"Topic {TOPIC} does not exist")
+        node.destroy_node()
+        rclpy.shutdown()
+        return 1
     else:
-        print(f"Waiting for message on topic {TOPIC}...")
         _, message = wait_for_message(
             JointState,
             node,
             TOPIC,
             qos_profile=qos_profile_sensor_data,
         )
-        print(f"Message received on topic {TOPIC}")
         node.callback(message)
-        print(f"Policy {node._LoadPolicyNode__policy_name} loaded successfully")
-
-    node.load_policy()
+        policy_name = node.get_policy_name()
 
     node.destroy_node()
     rclpy.shutdown()
-    
-    return node.get_policy_name()
+
+    print(policy_name, end="")
+    return 0
 
 
 if __name__ == "__main__":

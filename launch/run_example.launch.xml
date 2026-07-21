@@ -1,8 +1,13 @@
 <launch>
 
-      <arg name="example" default="kyon_full_locomotion_flat" />
+      <arg name="tag" default="latest" />
+      <arg name="example"
+           default="$(command '$(exec-in-pkg load_policy.py policy_deploy_toolkit) --tag $(var tag)' warn)" />
       <arg name="enable_joy" default="false" />
       <arg name="use_sim_time" default="true" />
+      <arg name="scale_x" default="1.0" />
+      <arg name="scale_y" default="1.0" />
+      <arg name="scale_yaw" default="1.0" />
 
       <let name="example_dir"
             value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
@@ -28,9 +33,9 @@
             <param name="axis_linear.x" value="1" />
             <param name="axis_linear.y" value="0" />
             <param name="axis_angular.yaw" value="3" />
-            <param name="scale_linear.x" value="1.5" />
-            <param name="scale_linear.y" value="1.5" />
-            <param name="scale_angular.yaw" value="1.5" />
+            <param name="scale_linear.x" value="$(var scale_x)" />
+            <param name="scale_linear.y" value="$(var scale_y)" />
+            <param name="scale_angular.yaw" value="$(var scale_yaw)" />
       </node>
 
 </launch>
