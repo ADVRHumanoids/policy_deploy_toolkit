@@ -74,36 +74,6 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         policy_info.joint_id_robot_to_policy[robot_id] = static_cast<int>(policy_id);
     }
 
-    // parse scene to get height scan size
-    policy_info.height_scan_size = 0;
-    if(auto scene = md["scene"]; scene && scene.IsMap())
-    {
-        for(auto pair : scene)
-        {
-            auto name = pair.first.as<std::string>();
-            auto config = pair.second;
-            if(!config.IsMap() || !config["class_type"])
-            {
-                continue;
-            }
-
-            auto class_type = config["class_type"].as<std::string>();
-
-            if(class_type == "kyon_isaac.sensors.ray_caster:KyonRayCaster")
-            {
-                const double pattern_resolution = config["pattern_cfg"]["resolution"].as<double>();
-                auto pattern_size = config["pattern_cfg"]["size"].as<std::pair<double, double>>();
-
-                policy_info.height_scan_size = (static_cast<int>(std::round(pattern_size.first / pattern_resolution)) + 1) *
-                                                (static_cast<int>(std::round(pattern_size.second / pattern_resolution)) + 1);
-
-                _sensor_specs.push_back(HeightScanSpec{name, class_type, policy_info.height_scan_size});
-
-                std::cout << std::format("[HeightScan] '{}' class: {} size: {}\n", name, class_type, policy_info.height_scan_size);
-            }
-        }
-    }
-
     // parse commands config
     auto cmd_cfg = md["commands"];
     for(auto pair : cmd_cfg) {
@@ -160,6 +130,41 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
         std::cout << "Observation: " << name << " func: " << func << " size: " << obs_term->size() << std::endl;
         
+        // Check if sensor is required for the observation term
+        auto params = config["params"];
+        if(params && params["sensor_cfg"])
+        {
+            // parse scene to get height scan size
+            policy_info.height_scan_size = 0;
+            if(auto scene = md["scene"]; scene && scene.IsMap())
+            {
+                for(auto pair : scene)
+                {
+                    auto name = pair.first.as<std::string>();
+                    auto config = pair.second;
+                    if(!config.IsMap() || !config["class_type"])
+                    {
+                        continue;
+                    }
+
+                    auto class_type = config["class_type"].as<std::string>();
+
+                    if(class_type == "kyon_isaac.sensors.ray_caster:KyonRayCaster")
+                    {
+                        const double pattern_resolution = config["pattern_cfg"]["resolution"].as<double>();
+                        auto pattern_size = config["pattern_cfg"]["size"].as<std::pair<double, double>>();
+
+                        policy_info.height_scan_size = (static_cast<int>(std::round(pattern_size.first / pattern_resolution)) + 1) *
+                                                        (static_cast<int>(std::round(pattern_size.second / pattern_resolution)) + 1);
+
+                        _sensor_specs.push_back(HeightScanSpec{name, class_type, policy_info.height_scan_size});
+
+                        std::cout << std::format("[HeightScan] '{}' class: {} size: {}\n", name, class_type, policy_info.height_scan_size);
+                    }
+                }
+            }
+        }
+
         _obs_terms.push_back(std::move(obs_term));
         obs_size += _obs_terms.back()->size();
 
