@@ -1,8 +1,16 @@
 <launch>
 
       <arg name="tag" default="latest" />
+      <arg name="distilled" default="false" />
+      <arg name="heightscan" default="false" />
+
+      <let name="distilled_flag" value="--distilled" if="$(var distilled)"/>
+      <let name="distilled_flag" value="" unless="$(var distilled)"/>
+      <let name="heightscan_flag" value="--heightscan" if="$(var heightscan)"/>
+      <let name="heightscan_flag" value="" unless="$(var heightscan)"/>
+
       <arg name="example"
-           default="$(command '$(exec-in-pkg load_policy.py policy_deploy_toolkit) --tag $(var tag)' warn)" />
+           default="$(command '$(exec-in-pkg load_policy.py policy_deploy_toolkit) --tag $(var tag) $(var distilled_flag) $(var heightscan_flag)' warn)" />
       <arg name="enable_joy" default="false" />
       <arg name="use_sim_time" default="true" />
       <arg name="scale_x" default="1.0" />
@@ -17,6 +25,7 @@
             output="screen"
             args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
             <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="obs_group_override" value="$(eval &quot; 'student' if '$(var distilled)' == 'true' else '' &quot;)"/>
             <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
       </node>
 

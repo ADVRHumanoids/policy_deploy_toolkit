@@ -14,6 +14,7 @@ from xbot_msgs.msg import JointState
 
 
 TOPIC = "/xbotcore/joint_states"
+POINTCLOUD_TOPIC = "/hesai_jt128_front/pointcloud"
 TAG = "latest"
 RELEASES_URL = "https://github.com/ADVRHumanoids/policy_deploy_toolkit/releases"
 
@@ -26,7 +27,7 @@ class LoadPolicyNode(Node):
         self.__legged = False
         self.__arms = False
         self.__is_callback_done = False
-        self.__policy_name = str
+        self.__policy_name: str = "kyon"
 
     def callback(self, message):
         if self.__is_callback_done:
@@ -56,17 +57,22 @@ class LoadPolicyNode(Node):
             raise RuntimeError("No valid configuration found")
         
         if self.__legged and not self.__arms:
-            self.__policy_name = "kyon_legged"
+            self.__policy_name += "_legged"
         elif self.__legged and self.__arms:
-            self.__policy_name = "kyon_legged_arms"
+            self.__policy_name += "_legged_arms"
         elif self.__steering_wheels and not self.__arms:
-            self.__policy_name = "kyon_steering_wheels"
+            self.__policy_name += "_steering_wheels"
         elif self.__steering_wheels and self.__arms:
-            self.__policy_name = "kyon_steering_wheels_arms"
+            self.__policy_name += "_steering_wheels_arms"
         elif self.__simple_wheels and not self.__arms:
-            self.__policy_name = "kyon_simple_wheels"
+            self.__policy_name += "_simple_wheels"
         elif self.__simple_wheels and self.__arms:
-            self.__policy_name = "kyon_simple_wheels_arms"
+            self.__policy_name += "_simple_wheels_arms"
+
+        if DISTILLED:
+            self.__policy_name += "_distilled"
+        if HEIGHTSCAN:
+            self.__policy_name += "_heightscan"
 
         examples_dir = (
             Path(get_package_share_directory("policy_deploy_toolkit")) / "examples"
@@ -80,17 +86,19 @@ class LoadPolicyNode(Node):
             else:
                 url = f"{RELEASES_URL}/download/{TAG}/{archive}"
 
-            print(f"Policy {self.__policy_name} not found, downloading from {url}...")
+            print(f"Policy {self.__policy_name} not found, downloading from {url}...", file=sys.stderr)
 
             subprocess.run(
-                ["wget", url, "-O", archive], cwd=examples_dir, check=True
+                ["wget", url, "-O", archive], cwd=examples_dir, check=True, stderr=sys.stderr, stdout=sys.stderr
             )
             subprocess.run(
-                ["unzip", archive, "-d", policy_dir],
+                ["unzip", archive, "-d", self.__policy_name],
                 cwd=examples_dir,
                 stdout=sys.stderr,
+                stderr=sys.stderr,
                 check=True,
             )
+            (examples_dir / archive).unlink()
 
     def get_policy_name(self):
         return self.__policy_name
@@ -98,11 +106,21 @@ class LoadPolicyNode(Node):
 
 def main():
     global TAG
+    global DISTILLED
+    global HEIGHTSCAN
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", default=TAG)
+    parser.add_argument("--distilled", action="store_true", help="Use distilled policy")
+    parser.add_argument("--heightscan", action="store_true", help="Use heightscan policy")
     args, ros_args = parser.parse_known_args()
+
+    if args.distilled and args.heightscan:
+        raise parser.error("Cannot use both --distilled and --heightscan at the same time")
+
     TAG = args.tag
+    DISTILLED = args.distilled
+    HEIGHTSCAN = args.heightscan
 
     rclpy.init(args=ros_args)
     node = LoadPolicyNode()
@@ -125,7 +143,7 @@ def main():
 
     node.destroy_node()
     rclpy.shutdown()
-
+    
     print(policy_name, end="")
     return 0
 
