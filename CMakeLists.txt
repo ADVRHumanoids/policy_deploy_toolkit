@@ -79,10 +79,12 @@ install(PROGRAMS scripts/load_policy.py
     DESTINATION lib/${PROJECT_NAME}
 )
 
-# install examples
-install(DIRECTORY examples/
-    DESTINATION share/${PROJECT_NAME}/examples
+install(PROGRAMS scripts/clear_examples.sh
+    DESTINATION bin
 )
+
+# install examples
+install(DIRECTORY DESTINATION share/${PROJECT_NAME}/examples)
 
 # install launch files
 install(DIRECTORY launch/
