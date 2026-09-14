@@ -13,6 +13,9 @@
             args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
             <param name="use_sim_time" value="$(var use_sim_time)"/>
             <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
+            <!-- depth policies: sensor name comes from the isaac scene (front_camera),
+                 while the gz sensor publishes under its own name (zed_front_down) -->
+            <remap from="/policy_deploy_node/sensors/front_camera/depth" to="/zed_front_down/depth_image"/>
       </node>
 
       <node pkg="joy"
@@ -25,11 +28,18 @@
             output="screen"
             if="$(var enable_joy)">
             <remap from="/cmd_vel" to="/policy_deploy_node/commands/base_velocity" />
+            <!-- teleop_twist_joy defaults to requiring a held deadman button, whose index is
+                 pad-specific; off is simpler than guessing it per controller -->
+            <param name="require_enable_button" value="false" />
             <param name="axis_linear.x" value="1" />
             <param name="axis_linear.y" value="0" />
             <param name="axis_angular.yaw" value="3" />
-            <param name="scale_linear.x" value="1.5" />
-            <param name="scale_linear.y" value="1.5" />
+            <!-- 0.8 m/s: the eval campaign sampled forward commands in [0.8, 1.0], and the
+                 policy trained on lin_vel_x within +/-1.0 -->
+            <param name="scale_linear.x" value="0.8" />
+            <!-- 0: the depth student trained with lin_vel_y = (0, 0) and a forward-only camera,
+                 so any lateral command is out of distribution -->
+            <param name="scale_linear.y" value="0.0" />
             <param name="scale_angular.yaw" value="1.5" />
       </node>
 

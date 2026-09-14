@@ -24,7 +24,19 @@ struct HeightScanSpec : public SensorSpecBase
     int size;
 };
 
-using SensorSpec = std::variant<ContactSensorSpec, HeightScanSpec>;
+// A depth camera feeding its own 2D ONNX input, named after the observation group it belongs to
+// (the group name is what rsl-rl uses as the input name when exporting a CNN model).
+struct DepthSpec : public SensorSpecBase
+{
+    int height{0};
+    int width{0};
+    double near{0.0};   // normalization window, from the obs term params
+    double far{1.0};
+    std::string obs_group;  // ONNX input name
+    int size() const { return height * width; }
+};
+
+using SensorSpec = std::variant<ContactSensorSpec, HeightScanSpec, DepthSpec>;
 
 }
 

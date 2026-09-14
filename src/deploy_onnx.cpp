@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <numeric>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -46,7 +47,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         policy_info.joint_default_vel.assign(policy_info.joint_default_pos.size(), 0.0);
     }
     policy_info.joint_names = md["joint_names"].as<std::vector<std::string>>();
-    policy_info.action_size = _output_tensors.back().buffer.size();
+    policy_info.action_size = _actionOutput().buffer.size();
     policy_info.joint_id_policy_to_robot.resize(policy_info.joint_names.size());
     policy_info.joint_id_robot_to_policy.assign(robot_info.joint_names.size(), -1);
     policy_info.control_dt = md["ctrl_dt"].as<double>();
@@ -101,6 +102,20 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
 
                 std::cout << std::format("[HeightScan] '{}' class: {} size: {}\n", name, class_type, policy_info.height_scan_size);
             }
+
+            if(class_type == "isaaclab.sensors.camera.tiled_camera:TiledCamera")
+            {
+                DepthSpec spec;
+                spec.name = name;
+                spec.class_type = class_type;
+                spec.height = config["height"].as<int>();
+                spec.width = config["width"].as<int>();
+                // near/far come from the depth obs term params, attached once groups are parsed
+                _sensor_specs.push_back(spec);
+
+                std::cout << std::format("[Depth] '{}' class: {} {}x{}\n",
+                                         name, class_type, spec.width, spec.height);
+            }
         }
     }
 
@@ -134,6 +149,58 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         obs_group = obs_group_override;
     }
 
+    // A CNN actor reads several groups: the 1D ones feed the flat "obs" input, each 2D one becomes
+    // its own image input named after the group. deploy_export.py writes both lists; bundles without
+    // them keep using default_obs_group above.
+    if(auto n1d = md["actor_obs_groups_1d"]; n1d && n1d.size() > 0)
+    {
+        if(n1d.size() > 1)
+        {
+            throw std::runtime_error("Multiple 1D observation groups are not supported yet");
+        }
+        obs_group = n1d[0].as<std::string>();
+    }
+
+    if(auto n2d = md["actor_obs_groups_2d"])
+    {
+        for(auto g : n2d)
+        {
+            const auto group = g.as<std::string>();
+            auto group_cfg = md["observations"][group];
+            if(!group_cfg)
+            {
+                throw std::runtime_error("2D observation group '" + group + "' not found in metadata");
+            }
+
+            for(auto pair : group_cfg)
+            {
+                const auto cfg = pair.second["cfg"];
+                if(!cfg.IsMap() || !cfg["params"] || !cfg["params"]["sensor_cfg"])
+                {
+                    continue;
+                }
+
+                const auto sensor_name = cfg["params"]["sensor_cfg"]["name"].as<std::string>();
+
+                for(auto& s : _sensor_specs)
+                {
+                    auto* d = std::get_if<DepthSpec>(&s);
+                    if(!d || d->name != sensor_name)
+                    {
+                        continue;
+                    }
+
+                    d->obs_group = group;
+                    d->near = cfg["params"]["near"].as<double>(0.0);
+                    d->far = cfg["params"]["far"].as<double>(1.0);
+
+                    std::cout << std::format("[Depth] '{}' -> onnx input '{}', window [{}, {}] m\n",
+                                             d->name, d->obs_group, d->near, d->far);
+                }
+            }
+        }
+    }
+
     auto obs_cfg = md["observations"][obs_group];
     int obs_size = 0;
 
@@ -161,8 +228,54 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         std::cout << "Observation: " << name << " func: " << func << " size: " << obs_term->size() << std::endl;
         
         _obs_terms.push_back(std::move(obs_term));
+        _obs_term_names.push_back(name);  // TEMP DEBUG
         obs_size += _obs_terms.back()->size();
 
+    }
+
+    // Drop sensors no observation term reads. md["scene"] describes the whole training env, so a
+    // depth bundle still lists the height scanner that only the critic consumed; subscribing to it
+    // would make fill_inputs wait forever for data nothing needs.
+    {
+        std::set<std::string> used_sensors;
+
+        auto collect = [&used_sensors](YAML::Node group_cfg) {
+            if(!group_cfg)
+            {
+                return;
+            }
+            for(auto pair : group_cfg)
+            {
+                const auto cfg = pair.second["cfg"];
+                if(cfg.IsMap() && cfg["params"] && cfg["params"]["sensor_cfg"])
+                {
+                    used_sensors.insert(cfg["params"]["sensor_cfg"]["name"].as<std::string>());
+                }
+            }
+        };
+
+        collect(obs_cfg);
+
+        if(auto n2d = md["actor_obs_groups_2d"])
+        {
+            for(auto g : n2d)
+            {
+                collect(md["observations"][g.as<std::string>()]);
+            }
+        }
+
+        std::erase_if(_sensor_specs, [&used_sensors](const SensorSpec& spec) {
+            const auto& name = std::visit(
+                [](const auto& s) -> const std::string& { return s.name; }, spec);
+
+            if(used_sensors.count(name))
+            {
+                return false;
+            }
+
+            std::cout << std::format("[Sensor] '{}' is in the scene but no observation term reads it; skipping\n", name);
+            return true;
+        });
     }
 
     if(obs_size != _input_tensors.front().buffer.size())
@@ -294,6 +407,10 @@ bool OnnxPolicy::run(const Inputs& inputs, Outputs& outputs)
         auto* output_data = output_values[i].GetTensorMutableData<float>();
         std::copy_n(output_data, _output_tensors[i].buffer.size(), _output_tensors[i].buffer.begin());
     }
+
+    // Feed h_out back in as h_in for the next step. ONNX graphs are stateless, so without this the
+    // recurrence is dead and the policy acts on a permanently-zero hidden state -- silently.
+    _carryRecurrentState();
 
     // Convert raw policy outputs into the typed Eigen output fields expected by the caller.
     _fillOutputs(outputs);
@@ -491,7 +608,52 @@ void OnnxPolicy::_refreshNamePointers()
 
 void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
 {
-    auto& tensor = _input_tensors.back();
+    // Inputs are matched by NAME: an image input is named after its observation group, the
+    // recurrent state carries over from the previous run, and what remains is the flat observation
+    // vector. A feed-forward policy has exactly one input and lands on the last branch.
+    TensorBuffer* flat = nullptr;
+
+    for(auto& t : _input_tensors)
+    {
+        if(_isRecurrentInput(t.name))
+        {
+            continue;  // already holds h_out from the previous step, zeros on the first
+        }
+
+        const DepthSpec* depth = nullptr;
+        for(const auto& s : _sensor_specs)
+        {
+            const auto* d = std::get_if<DepthSpec>(&s);
+            if(d && d->obs_group == t.name)
+            {
+                depth = d;
+                break;
+            }
+        }
+
+        if(depth)
+        {
+            const auto it = inputs.depth.find(depth->obs_group);
+            if(it != inputs.depth.end() && it->second.size() == t.buffer.size())
+            {
+                std::copy(it->second.begin(), it->second.end(), t.buffer.begin());
+            }
+            continue;
+        }
+
+        if(flat)
+        {
+            throw std::runtime_error("More than one non-image ONNX input: '" + flat->name + "' and '" + t.name + "'");
+        }
+        flat = &t;
+    }
+
+    if(!flat)
+    {
+        throw std::runtime_error("No flat observation input found on the ONNX model");
+    }
+
+    auto& tensor = *flat;
     int buffer_offset = 0;
     for(auto&& obs_term : _obs_terms)
     {
@@ -505,19 +667,39 @@ void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
     }
 
     auto policy_input = Eigen::VectorXf::Map(tensor.buffer.data(), tensor.buffer.size());
-    // std::cout << "Policy input: " << policy_input.transpose().format(2) << std::endl;
+
+    // --- TEMP DEBUG: every observation term with its name, throttled to ~1 Hz ---
+    static int _dbg = 0;
+    if(_dbg++ % 50 == 0)
+    {
+        std::cout << "[OBS] --------------------------------------------------" << std::endl;
+        int off = 0;
+        for(std::size_t t = 0; t < _obs_terms.size(); ++t)
+        {
+            const int n = _obs_terms[t]->size();
+            std::cout << "[OBS] " << _obs_term_names[t] << " (" << n << "): ";
+            for(int k = 0; k < n; ++k)
+            {
+                std::cout << policy_input(off + k) << " ";
+            }
+            std::cout << std::endl;
+            off += n;
+        }
+    }
+    // --- END TEMP DEBUG ---
 }
 
 void OnnxPolicy::_fillOutputs(Outputs& outputs)
 {
-    auto policy_output = Eigen::VectorXf::Map(_output_tensors.back().buffer.data(), _output_tensors.back().buffer.size());
+    const auto& action_tensor = _actionOutput();
+    auto policy_output = Eigen::VectorXf::Map(action_tensor.buffer.data(), action_tensor.buffer.size());
     //std::cout << "Policy output: " << policy_output.transpose().format(2) << std::endl;
 
     // set the raw action vector to the output, which is used as the last_action input in the next run
     outputs.raw_action = policy_output.cast<double>();
 
     // process each action term to fill the corresponding robot outputs
-    auto& tensor = _output_tensors.back();
+    const auto& tensor = action_tensor;
     int buffer_offset = 0;
     for(auto&& action_term : _action_terms)
     {
@@ -528,6 +710,50 @@ void OnnxPolicy::_fillOutputs(Outputs& outputs)
 
         action_term->process(raw_action.cast<double>(), outputs);
     }
+}
+
+
+bool OnnxPolicy::_isRecurrentInput(const std::string& name) const
+{
+    return name == "h_in" || name == "c_in";
+}
+
+void OnnxPolicy::_carryRecurrentState()
+{
+    // rsl-rl names these h_in/h_out, plus c_in/c_out for an LSTM
+    for(auto& in : _input_tensors)
+    {
+        if(!_isRecurrentInput(in.name))
+        {
+            continue;
+        }
+
+        const std::string out_name = (in.name == "h_in") ? "h_out" : "c_out";
+
+        for(const auto& out : _output_tensors)
+        {
+            if(out.name == out_name && out.buffer.size() == in.buffer.size())
+            {
+                std::copy(out.buffer.begin(), out.buffer.end(), in.buffer.begin());
+                break;
+            }
+        }
+    }
+}
+
+
+const OnnxPolicy::TensorBuffer& OnnxPolicy::_actionOutput() const
+{
+    // everything that is not recurrent state is the action head; rsl-rl exports exactly one
+    for(const auto& out : _output_tensors)
+    {
+        if(out.name != "h_out" && out.name != "c_out")
+        {
+            return out;
+        }
+    }
+
+    throw std::runtime_error("ONNX model has no non-recurrent output to read actions from");
 }
 
 }

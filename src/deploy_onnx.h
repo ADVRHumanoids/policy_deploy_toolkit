@@ -65,6 +65,9 @@ static std::size_t _elementCount(const std::vector<int64_t>& shape);
 void _refreshNamePointers();
 void _fillInputBuffers(const Inputs& inputs);
 void _fillOutputs(Outputs& outputs);
+void _carryRecurrentState();
+bool _isRecurrentInput(const std::string& name) const;
+const TensorBuffer& _actionOutput() const;
 
 std::string _model_path;
 std::string _model_metadata_path;
@@ -82,6 +85,9 @@ std::vector<const char*> _output_name_ptrs;
 bool _initialized{false};
 
 std::vector<std::unique_ptr<ObsTerm>> _obs_terms;
+// --- TEMP DEBUG: term names, parallel to _obs_terms ---
+std::vector<std::string> _obs_term_names;
+// --- END TEMP DEBUG ---
 std::vector<std::unique_ptr<ActionTerm>> _action_terms;
 std::vector<std::unique_ptr<CommandTerm>> _command_terms;
 std::vector<CommandSpec> _command_specs;

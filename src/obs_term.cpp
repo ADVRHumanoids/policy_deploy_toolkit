@@ -156,12 +156,32 @@ IsaacLabProjectedGravityObsTerm::IsaacLabProjectedGravityObsTerm(RobotInfo robot
                                                                  YAML::Node config) : ObsTerm(robot_info, policy_info, config)
 {
     _size = 3;
+
+    // --- TEMP DEBUG: what the URDF gave us for base_T_imu ---
+    const Eigen::Matrix3d _dbgR = _robot_info.base_T_imu.linear();
+    std::cout << "[IMU] base_T_imu.linear() =" << std::endl
+              << _dbgR << std::endl
+              << "[IMU] base_T_imu rpy = " << _dbgR.eulerAngles(0, 1, 2).transpose()
+              << "   xyz = " << _robot_info.base_T_imu.translation().transpose() << std::endl;
+    // --- END TEMP DEBUG ---
 }
 
 void IsaacLabProjectedGravityObsTerm::process_impl(const Inputs& inputs, Eigen::VectorXd& output)
 {
     // World z -> IMU -> base
     output = -_robot_info.base_T_imu.linear() * inputs.w_R_imu.toRotationMatrix().transpose().col(2);
+
+    // --- TEMP DEBUG: the two inputs to the line above, throttled to ~1 Hz ---
+    static int _dbg = 0;
+    if(_dbg++ % 50 == 0)
+    {
+        const Eigen::Matrix3d Rw = inputs.w_R_imu.toRotationMatrix();
+        std::cout << "[IMU] w_R_imu quat(xyzw) = " << inputs.w_R_imu.coeffs().transpose()
+                  << "  rpy = " << Rw.eulerAngles(0, 1, 2).transpose() << std::endl
+                  << "[IMU] world_z_in_imu = " << Rw.transpose().col(2).transpose()
+                  << "   -> proj_gravity = " << output.transpose() << std::endl;
+    }
+    // --- END TEMP DEBUG ---
 }
 
 IsaacLabGeneratedCommandsObsTerm::IsaacLabGeneratedCommandsObsTerm(RobotInfo robot_info,

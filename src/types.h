@@ -45,6 +45,10 @@ struct Inputs {
     Eigen::Vector3d imu_acc;
 
     Eigen::VectorXd height_scan;
+
+    // normalized depth images, keyed by observation group; row-major, values already mapped to
+    // [0, 1] over the term's [near, far] window with misses pushed to 1.0 (see store_depth_image)
+    std::map<std::string, std::vector<float>> depth;
 };
 
 struct Outputs {

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
@@ -174,6 +176,10 @@ public:
             {
                 create_height_scan_subscription(std::get<XBot::policy::HeightScanSpec>(spec));
             }
+            else if(std::holds_alternative<XBot::policy::DepthSpec>(spec))
+            {
+                create_depth_subscription(std::get<XBot::policy::DepthSpec>(spec));
+            }
             else
             {
                 throw std::runtime_error("Unsupported sensor spec in ROS receiver");
@@ -183,12 +189,37 @@ public:
 
     bool fill_inputs(XBot::policy::Inputs& inputs, const rclcpp::Time& now)
     {
-        if(_height_scan_states.empty())
+        if(_height_scan_states.empty() && _depth_states.empty())
         {
             return true;
         }
 
         std::lock_guard<std::mutex> lock(_mutex);
+
+        for(auto& [name, state] : _depth_states)
+        {
+            if(!state.has_value)
+            {
+                RCLCPP_WARN_THROTTLE(_node.get_logger(),
+                                     *_node.get_clock(),
+                                     1000,
+                                     "Waiting for depth image '%s'",
+                                     name.c_str());
+                return false;
+            }
+
+            if((now - state.stamp).seconds() > _timeout_s)
+            {
+                RCLCPP_WARN_THROTTLE(_node.get_logger(),
+                                     *_node.get_clock(),
+                                     1000,
+                                     "Depth image '%s' is stale; reusing last valid frame",
+                                     name.c_str());
+            }
+
+            inputs.depth[state.spec.obs_group] = state.value;
+        }
+
         for(auto& [name, state] : _height_scan_states)
         {
             if(!state.has_value)
@@ -223,6 +254,106 @@ private:
         rclcpp::Time stamp;
         bool has_value{false};
     };
+
+    struct DepthState {
+        XBot::policy::DepthSpec spec;
+        std::vector<float> value;  // normalized to [0, 1], row-major
+        rclcpp::Time stamp;
+        bool has_value{false};
+    };
+
+    void create_depth_subscription(const XBot::policy::DepthSpec& spec)
+    {
+        if(spec.size() <= 0)
+        {
+            throw std::runtime_error("Depth sensor '" + spec.name + "' has non-positive size");
+        }
+
+        DepthState state;
+        state.spec = spec;
+        // 1.0 = empty, so an unfilled buffer reads as "nothing ahead" rather than a wall
+        state.value.assign(spec.size(), 1.0f);
+        state.stamp = _node.now();
+        _depth_states.emplace(spec.name, std::move(state));
+
+        using Message = sensor_msgs::msg::Image;
+        const auto topic = "~/sensors/" + spec.name + "/depth";
+        auto subscription = _node.create_subscription<Message>(
+            topic,
+            rclcpp::SensorDataQoS().keep_last(1).best_effort(),
+            [this, name = spec.name](Message::ConstSharedPtr msg) {
+                store_depth_image(name, *msg);
+            });
+
+        _subscriptions.push_back(std::move(subscription));
+        RCLCPP_INFO(_node.get_logger(), "Subscribed to depth '%s' on '%s' (%dx%d)",
+                    spec.name.c_str(), topic.c_str(), spec.width, spec.height);
+    }
+
+    void store_depth_image(const std::string& name, const sensor_msgs::msg::Image& msg)
+    {
+        auto it = _depth_states.find(name);
+        if(it == _depth_states.end())
+        {
+            return;
+        }
+
+        const auto& spec = it->second.spec;
+
+        // The camera may render larger than the policy resolution (gz is unreliable at 48x30), as
+        // long as it divides evenly; each output pixel then takes one source sample.
+        if(static_cast<int>(msg.width) % spec.width != 0 ||
+           static_cast<int>(msg.height) % spec.height != 0)
+        {
+            RCLCPP_WARN_THROTTLE(_node.get_logger(), *_node.get_clock(), 1000,
+                                 "Ignoring depth '%s': %ux%u is not an integer multiple of %dx%d",
+                                 name.c_str(), msg.width, msg.height, spec.width, spec.height);
+            return;
+        }
+
+        if(msg.encoding != "32FC1")
+        {
+            RCLCPP_WARN_THROTTLE(_node.get_logger(), *_node.get_clock(), 1000,
+                                 "Ignoring depth '%s': expected 32FC1, got '%s'",
+                                 name.c_str(), msg.encoding.c_str());
+            return;
+        }
+
+        const double span = spec.far - spec.near;
+        if(span <= 0.0)
+        {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto& out = it->second.value;
+        out.resize(spec.size());
+
+        const int row_step = static_cast<int>(msg.height) / spec.height;
+        const int col_step = static_cast<int>(msg.width) / spec.width;
+
+        for(int row = 0; row < spec.height; ++row)
+        {
+            // centre of the source block, so the sampled ray matches where the pixel centre points
+            const int src_row = row * row_step + row_step / 2;
+            const auto* src = reinterpret_cast<const float*>(msg.data.data() + src_row * msg.step);
+
+            for(int col = 0; col < spec.width; ++col)
+            {
+                float d = src[col * col_step + col_step / 2];
+                // misses (nan/inf) read as empty, matching nan_to_num(nan=far, ...) in training
+                if(!std::isfinite(d))
+                {
+                    d = static_cast<float>(spec.far);
+                }
+                d = std::clamp(d, static_cast<float>(spec.near), static_cast<float>(spec.far));
+                out[row * spec.width + col] = static_cast<float>((d - spec.near) / span);
+            }
+        }
+
+        it->second.stamp = _node.now();
+        it->second.has_value = true;
+    }
 
     void create_height_scan_subscription(const XBot::policy::HeightScanSpec& spec)
     {
@@ -407,6 +538,7 @@ private:
     double _timeout_s;
     std::mutex _mutex;
     std::map<std::string, HeightScanState> _height_scan_states;
+    std::map<std::string, DepthState> _depth_states;
     std::vector<rclcpp::SubscriptionBase::SharedPtr> _subscriptions;
 };
 
