@@ -1,8 +1,8 @@
 task: Isaac-Velocity-Rough-KyonFull-DepthDistill-ObsRnn-PLAY-v0
 run: 2026-09-14_00-28-31_full_depth_bcs1_bce01_custcurr_spe48_obsrnn_1024env
-checkpoint: model_4000.pt
+checkpoint: model_6000.pt
 experiment: kyon_rough_depth_obsrnn
-exported_at: '2026-09-14T09:22:15'
+exported_at: '2026-09-14T13:39:15'
 joint_stiffness:
 - 350
 - 350

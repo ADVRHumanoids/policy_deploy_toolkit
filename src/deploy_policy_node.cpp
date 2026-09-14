@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -170,6 +171,19 @@ public:
         _node(node),
         _timeout_s(timeout_s)
     {
+        // how each block of source pixels collapses to one policy pixel when the camera renders
+        // at a multiple of the policy resolution:
+        //   center: pixel at the block centre, same single ray per pixel the sim renders
+        //   mean / median: smooth sensor noise; min: keeps the closest obstacle in the block
+        // mean/min/median skip invalid (non-finite) pixels; an all-invalid block reads as far
+        _depth_downsample = _node.declare_parameter<std::string>("depth_downsample", "center");
+        if(_depth_downsample != "center" && _depth_downsample != "mean" &&
+           _depth_downsample != "min" && _depth_downsample != "median")
+        {
+            throw std::runtime_error("Parameter 'depth_downsample' must be one of center, mean, min, median; got '" +
+                                     _depth_downsample + "'");
+        }
+
         for(const auto& spec : policy.sensor_specs())
         {
             if(std::holds_alternative<XBot::policy::HeightScanSpec>(spec))
@@ -258,6 +272,7 @@ private:
     struct DepthState {
         XBot::policy::DepthSpec spec;
         std::vector<float> value;  // normalized to [0, 1], row-major
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr input_pub;  // echoes value for debugging
         rclcpp::Time stamp;
         bool has_value{false};
     };
@@ -274,7 +289,18 @@ private:
         // 1.0 = empty, so an unfilled buffer reads as "nothing ahead" rather than a wall
         state.value.assign(spec.size(), 1.0f);
         state.stamp = _node.now();
+        state.input_pub = _node.create_publisher<sensor_msgs::msg::Image>(
+            "~/sensors/" + spec.name + "/policy_input", rclcpp::SensorDataQoS());
         _depth_states.emplace(spec.name, std::move(state));
+
+        // own group, so a multi-threaded executor runs image processing beside the control timer
+        // (default group) instead of delaying its tick; store_depth_image publishes under _mutex
+        if(!_depth_group)
+        {
+            _depth_group = _node.create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        }
+        rclcpp::SubscriptionOptions options;
+        options.callback_group = _depth_group;
 
         using Message = sensor_msgs::msg::Image;
         const auto topic = "~/sensors/" + spec.name + "/depth";
@@ -283,7 +309,8 @@ private:
             rclcpp::SensorDataQoS().keep_last(1).best_effort(),
             [this, name = spec.name](Message::ConstSharedPtr msg) {
                 store_depth_image(name, *msg);
-            });
+            },
+            options);
 
         _subscriptions.push_back(std::move(subscription));
         RCLCPP_INFO(_node.get_logger(), "Subscribed to depth '%s' on '%s' (%dx%d)",
@@ -325,32 +352,93 @@ private:
             return;
         }
 
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto& out = it->second.value;
-        out.resize(spec.size());
+        // pooling a full-res frame takes milliseconds: build outside the lock the control loop reads under
+        std::vector<float> out(spec.size());
 
         const int row_step = static_cast<int>(msg.height) / spec.height;
         const int col_step = static_cast<int>(msg.width) / spec.width;
+        const float near = static_cast<float>(spec.near);
+        const float far = static_cast<float>(spec.far);
+        const auto pixel = [&](int r, int c) {
+            return reinterpret_cast<const float*>(msg.data.data() + r * msg.step)[c];
+        };
+
+        std::vector<float> block;
+        block.reserve(row_step * col_step);
 
         for(int row = 0; row < spec.height; ++row)
         {
-            // centre of the source block, so the sampled ray matches where the pixel centre points
-            const int src_row = row * row_step + row_step / 2;
-            const auto* src = reinterpret_cast<const float*>(msg.data.data() + src_row * msg.step);
-
             for(int col = 0; col < spec.width; ++col)
             {
-                float d = src[col * col_step + col_step / 2];
-                // misses (nan/inf) read as empty, matching nan_to_num(nan=far, ...) in training
-                if(!std::isfinite(d))
+                const int r0 = row * row_step;
+                const int c0 = col * col_step;
+                float d = far;
+
+                if(_depth_downsample == "center")
                 {
-                    d = static_cast<float>(spec.far);
+                    // centre of the source block, so the sampled ray matches where the pixel centre points;
+                    // misses (nan/inf) read as empty, matching nan_to_num(nan=far, ...) in training
+                    d = pixel(r0 + row_step / 2, c0 + col_step / 2);
+                    d = std::isfinite(d) ? std::clamp(d, near, far) : far;
                 }
-                d = std::clamp(d, static_cast<float>(spec.near), static_cast<float>(spec.far));
-                out[row * spec.width + col] = static_cast<float>((d - spec.near) / span);
+                else
+                {
+                    block.clear();
+                    for(int r = r0; r < r0 + row_step; ++r)
+                    {
+                        for(int c = c0; c < c0 + col_step; ++c)
+                        {
+                            const float v = pixel(r, c);
+                            if(std::isfinite(v))
+                            {
+                                // clamp first so returns beyond far don't drag the mean past the window
+                                block.push_back(std::clamp(v, near, far));
+                            }
+                        }
+                    }
+
+                    if(block.empty())
+                    {
+                        d = far;
+                    }
+                    else if(_depth_downsample == "mean")
+                    {
+                        d = std::accumulate(block.begin(), block.end(), 0.0f) / block.size();
+                    }
+                    else if(_depth_downsample == "min")
+                    {
+                        d = *std::min_element(block.begin(), block.end());
+                    }
+                    else  // median
+                    {
+                        // ponytail: upper median for even counts, no averaging of the two middles
+                        auto mid = block.begin() + block.size() / 2;
+                        std::nth_element(block.begin(), mid, block.end());
+                        d = *mid;
+                    }
+                }
+
+                out[row * spec.width + col] = (d - near) / static_cast<float>(span);
             }
         }
 
+        // exactly the buffer the ONNX image input receives: 32FC1, [0, 1] over [near, far], 1 = empty
+        if(it->second.input_pub->get_subscription_count() > 0)
+        {
+            sensor_msgs::msg::Image img;
+            img.header = msg.header;
+            img.height = spec.height;
+            img.width = spec.width;
+            img.encoding = "32FC1";
+            img.is_bigendian = false;
+            img.step = sizeof(float) * spec.width;
+            img.data.resize(sizeof(float) * out.size());
+            std::memcpy(img.data.data(), out.data(), img.data.size());
+            it->second.input_pub->publish(std::move(img));
+        }
+
+        std::lock_guard<std::mutex> lock(_mutex);
+        it->second.value = std::move(out);
         it->second.stamp = _node.now();
         it->second.has_value = true;
     }
@@ -536,6 +624,8 @@ private:
 
     rclcpp::Node& _node;
     double _timeout_s;
+    std::string _depth_downsample;
+    rclcpp::CallbackGroup::SharedPtr _depth_group;
     std::mutex _mutex;
     std::map<std::string, HeightScanState> _height_scan_states;
     std::map<std::string, DepthState> _depth_states;
@@ -721,7 +811,11 @@ int main(int argc, char *argv[]) {
     {
         auto node = std::make_shared<PolicyDeployNode>();
         node->init(argv[1], argv[2]);
-        rclcpp::spin(node);
+        // 2 threads: the default group (control timer, commands, height scan) stays serialized on
+        // one, depth images are processed on the other
+        rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
+        executor.add_node(node);
+        executor.spin();
     }
     catch(const std::exception& e)
     {

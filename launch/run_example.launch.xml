@@ -3,6 +3,8 @@
       <arg name="example" default="kyon_full_locomotion_flat" />
       <arg name="enable_joy" default="false" />
       <arg name="use_sim_time" default="true" />
+      <!-- center | mean | min | median: how a full-res depth frame collapses to the policy resolution -->
+      <arg name="depth_downsample" default="center" />
 
       <let name="example_dir"
             value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
@@ -12,6 +14,7 @@
             output="screen"
             args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
             <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="depth_downsample" value="$(var depth_downsample)"/>
             <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
             <!-- depth policies: sensor name comes from the isaac scene (front_camera),
                  while the gz sensor publishes under its own name (zed_front_down) -->
