@@ -5,6 +5,8 @@
       <arg name="use_sim_time" default="true" />
       <!-- center | mean | min | median: how a full-res depth frame collapses to the policy resolution -->
       <arg name="depth_downsample" default="center" />
+      <!-- raw sensor_msgs/Image, 32FC1; gz default, on the robot e.g. /zed_down/zed_node/depth/depth_registered -->
+      <arg name="depth_topic" default="/zed_front_down/depth_image" />
 
       <let name="example_dir"
             value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
