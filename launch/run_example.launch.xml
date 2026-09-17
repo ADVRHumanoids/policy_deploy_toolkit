@@ -20,7 +20,7 @@
             <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
             <!-- depth policies: sensor name comes from the isaac scene (front_camera),
                  while the gz sensor publishes under its own name (zed_front_down) -->
-            <remap from="/policy_deploy_node/sensors/front_camera/depth" to="/zed_front_down/depth_image"/>
+            <remap from="/policy_deploy_node/sensors/front_camera/depth" to="$(var depth_topic)"/>
       </node>
 
       <node pkg="joy"
