@@ -1,8 +1,8 @@
 task: Isaac-Velocity-Rough-Kyon-DepthDistill-ObsRnn-PLAY-v0
-run: 2026-08-22_03-37-21_depth_distill_bc1_custcurr_48x30_spe96_obsrnn
+run: 2026-08-28_08-05-22_depth_imit_custcurr_48x30_spe96_obsrnn_4096env_dclipmin01
 checkpoint: model_9999.pt
 experiment: kyon_rough_depth_obsrnn
-exported_at: '2026-09-13T15:21:07'
+exported_at: '2026-09-24T08:53:10'
 joint_stiffness:
 - 350
 - 350
@@ -1256,8 +1256,13 @@ observations:
             - null
             - null
             preserve_order: false
-          near: 0.3
+          near: 0.1
           far: 2.0
+          timing:
+            delay_steps: !!python/tuple
+            - 0
+            - 0
+            hold_prob: 0.0
         modifiers: null
         noise: null
         clip: null
@@ -1591,8 +1596,8 @@ scene:
           platform_width: 2.0
           inverted: true
       difficulty_range: !!python/tuple
-      - 0.4
-      - 0.6
+      - 0.2
+      - 0.2
       use_cache: false
       cache_dir: /tmp/isaaclab/terrains
     usd_path: null
@@ -1878,7 +1883,7 @@ scene:
       copy_from_source: true
       projection_type: pinhole
       clipping_range: !!python/tuple
-      - 0.3
+      - 0.1
       - 20.0
       focal_length: 7.977655812499999
       focus_distance: 400.0

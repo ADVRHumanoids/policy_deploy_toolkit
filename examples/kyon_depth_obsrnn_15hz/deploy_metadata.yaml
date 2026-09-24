@@ -1,3 +1,8 @@
+task: Isaac-Velocity-Rough-KyonFull-DepthDistill-ObsRnn-PLAY-v0
+run: 2026-09-15_11-08-18_full_depth_bcs1_bce01_custcurr_spe48_obsrnn_2048env_15hzfinetune_hold03delay03
+checkpoint: model_13000.pt
+experiment: kyon_rough_depth_obsrnn
+exported_at: '2026-09-24T09:53:16'
 joint_stiffness:
 - 350
 - 350
@@ -1253,6 +1258,11 @@ observations:
             preserve_order: false
           near: 0.1
           far: 2.0
+          timing:
+            delay_steps: !!python/tuple
+            - 0
+            - 3
+            hold_prob: 0.3
         modifiers: null
         noise: null
         clip: null
@@ -1415,8 +1425,9 @@ scene:
       joint_drive_props: null
       visual_material_path: material
       visual_material: null
-      usd_path: /workspace/isaaclab/source/isaaclab_assets/data/Robots/Kyon/kyon_coll.usd
-      variants: null
+      usd_path: /workspace/kyon_isaac/source/kyon_isaac/kyon_isaac/assets/kyon_full.usd
+      variants:
+        Physics: PhysXCapsuleLegs
     init_state:
       pos: !!python/tuple
       - 0.0
@@ -1448,6 +1459,18 @@ scene:
         knee_pitch_2: -1.4
         knee_pitch_3: 1.4
         knee_pitch_4: -1.4
+        shoulder_yaw_1: 0.0
+        shoulder_yaw_2: 0.0
+        shoulder_pitch_1: 1.5
+        shoulder_pitch_2: -1.5
+        elbow_pitch_1: 2.7
+        elbow_pitch_2: -2.7
+        wrist_pitch_1: 0.7
+        wrist_pitch_2: -0.7
+        wrist_yaw_1: 0.0
+        wrist_yaw_2: 0.0
+        dagana_1_clamp_joint: 0.0
+        dagana_2_clamp_joint: 0.0
       joint_vel:
         .*: 0.0
     collision_group: 0
@@ -1472,6 +1495,52 @@ scene:
         dynamic_friction: 4.68
         viscous_friction: 1.7
         saturation_effort: 185
+      motorB:
+        class_type: isaaclab.actuators.actuator_pd:DCMotor
+        joint_names_expr:
+        - shoulder_pitch_.*
+        effort_limit: 146
+        velocity_limit: 3.8
+        effort_limit_sim: null
+        velocity_limit_sim: null
+        stiffness: 300
+        damping: 10
+        armature: 0.472
+        friction: 2.75
+        dynamic_friction: 2.75
+        viscous_friction: 5.1
+        saturation_effort: 146
+      motorC:
+        class_type: isaaclab.actuators.actuator_pd:DCMotor
+        joint_names_expr:
+        - shoulder_yaw_.*
+        - elbow_pitch_.*
+        effort_limit: 122
+        velocity_limit: 4.6
+        effort_limit_sim: null
+        velocity_limit_sim: null
+        stiffness: 100
+        damping: 5
+        armature: 0.382
+        friction: 3.2
+        dynamic_friction: 3.2
+        viscous_friction: 6.75
+        saturation_effort: 122
+      motorD:
+        class_type: isaaclab.actuators.actuator_pd:DCMotor
+        joint_names_expr:
+        - wrist_.*
+        effort_limit: 25
+        velocity_limit: 14
+        effort_limit_sim: null
+        velocity_limit_sim: null
+        stiffness: 100
+        damping: 5
+        armature: 0.078
+        friction: 1.0
+        dynamic_friction: 1.0
+        viscous_friction: 0.7
+        saturation_effort: 25
     actuator_value_resolution_debug_print: false
   terrain:
     class_type: isaaclab.terrains.terrain_importer:TerrainImporter
@@ -1488,7 +1557,7 @@ scene:
       - 8.0
       border_width: 20.0
       border_height: 1.0
-      num_rows: 1
+      num_rows: 3
       num_cols: 6
       color_scheme: none
       horizontal_scale: 0.1
@@ -1585,8 +1654,8 @@ scene:
           platform_width: 2.0
           inverted: true
       difficulty_range: !!python/tuple
-      - 1.0
-      - 1.0
+      - 0.2
+      - 0.2
       use_cache: false
       cache_dir: /tmp/isaaclab/terrains
     usd_path: null
@@ -1851,7 +1920,7 @@ scene:
   front_camera:
     class_type: isaaclab.sensors.camera.tiled_camera:TiledCamera
     prim_path: /World/envs/env_.*/Robot/zed_front_down_mount_link/front_camera
-    update_period: 0.03333333333333333
+    update_period: 0.0667
     history_length: 0
     debug_vis: false
     offset:
@@ -1885,8 +1954,8 @@ scene:
     depth_clipping_behavior: max
     data_types:
     - distance_to_image_plane
-    width: 48
-    height: 30
+    width: 96
+    height: 60
     update_latest_camera_pose: false
     semantic_filter: '*:*'
     colorize_semantic_segmentation: true

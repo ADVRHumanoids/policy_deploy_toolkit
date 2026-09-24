@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -24,6 +25,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <xbot2_interface/robotinterface2.h>
 #include <xbot2_interface/ros2/config_from_param.hpp>
 
@@ -701,10 +703,66 @@ public:
         const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::duration<double>(_policy->policyInfo().control_dt));
 
+        // simulated power loss: comma-separated "joint[:scale]" (scale = kept gain fraction, default 0),
+        // empty string clears the fault
+        _fault_sub = create_subscription<std_msgs::msg::String>(
+            "~/fault_joints", rclcpp::QoS(1).reliable(),
+            [this](const std_msgs::msg::String::SharedPtr msg) { fault_callback(msg->data); });
+
         _timer = create_timer(period, [this]() { control_timer_callback(); });
     }
 
 private:
+    void fault_callback(const std::string& data)
+    {
+        _faults.clear();
+        std::stringstream ss(data);
+        std::string item;
+        while(std::getline(ss, item, ','))
+        {
+            std::erase(item, ' ');
+            if(item.empty())
+            {
+                continue;
+            }
+            const auto sep = item.find(':');
+            const std::string name = item.substr(0, sep);
+            double scale = 0.0;
+            if(sep != std::string::npos)
+            {
+                try
+                {
+                    scale = std::clamp(std::stod(item.substr(sep + 1)), 0.0, 1.0);
+                }
+                catch(const std::exception&)
+                {
+                    RCLCPP_WARN(get_logger(), "fault: bad scale in '%s', ignored", item.c_str());
+                    continue;
+                }
+            }
+            int vid = _robot->getVIndexFromVName(name);
+            if(vid < 0)
+            {
+                RCLCPP_WARN(get_logger(), "fault: unknown joint '%s', ignored", name.c_str());
+                continue;
+            }
+            _faults.emplace_back(vid, scale);
+        }
+        _fault_changed = true;
+        RCLCPP_WARN(get_logger(), "fault: power loss on %zu joint(s) [%s]", _faults.size(), data.c_str());
+    }
+
+    void apply_fault(XBot::policy::Outputs& outputs)
+    {
+        for(const auto& [vid, scale] : _faults)
+        {
+            outputs.k_des(vid) *= scale;
+            outputs.d_des(vid) *= scale;
+            outputs.tau_des(vid) *= scale;
+            outputs.ctrl_mode(vid) |= (8 + 16); // stiffness + damping
+        }
+    }
+
     void fill_ctrl_mode()
     {
         for(int vi = 0; vi < _robot->getNv(); ++vi)
@@ -754,6 +812,7 @@ private:
 
         // run policy
         _policy->run(_inputs, outputs);
+        apply_fault(outputs);
 
         //
         fill_ctrl_mode();
@@ -764,12 +823,14 @@ private:
         _robot->setPositionReference(_vec_nq);
         _robot->setVelocityReference(outputs.v_des);
         _robot->setEffortReference(outputs.tau_des);
-        if(t_start - _loop_start < 1s)
+        if(t_start - _loop_start < 1s || !_faults.empty() || _fault_changed)
         {
             // note: we stop sending impedance after one second,
             // so we can tune it online from a separate node (e.g. gui)
+            // while a fault is active (and once after clearing) nominal gains are resent
             _robot->setStiffness(outputs.k_des);
             _robot->setDamping(outputs.d_des);
+            _fault_changed = false;
         }
 #ifdef ENABLE_COMMAND_TIMESTAMPS
         _robot->setCommandTimestamp(_robot->getStateTimestamp());
@@ -792,6 +853,9 @@ private:
     Eigen::VectorXd _vec_nq;
     Eigen::Matrix<uint8_t, Eigen::Dynamic, 1> _vec_nj;
     std::chrono::steady_clock::time_point _loop_start;
+    std::vector<std::pair<int, double>> _faults; // (v index, kept gain fraction)
+    bool _fault_changed{false};
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _fault_sub;
     rclcpp::TimerBase::SharedPtr _timer;
 };
 

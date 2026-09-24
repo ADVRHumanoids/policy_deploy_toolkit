@@ -75,6 +75,11 @@ install(TARGETS deploy_policy_node
     DESTINATION lib/${PROJECT_NAME}
 )
 
+# install scripts
+install(PROGRAMS scripts/fault_keyboard.py
+    DESTINATION lib/${PROJECT_NAME}
+)
+
 # install examples
 install(DIRECTORY examples/
     DESTINATION share/${PROJECT_NAME}/examples
