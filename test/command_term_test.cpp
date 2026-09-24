@@ -51,27 +51,28 @@ int main()
     Eigen::VectorXd raw(3);
     Eigen::VectorXd sanitized;
     std::string reason;
+    XBot::policy::Inputs inputs;
 
     raw << 0.5, -0.25, 0.75;
-    assert(command->sanitize(raw, sanitized, &reason));
+    assert(command->sanitize(inputs, raw, sanitized, &reason));
     assert(reason.empty());
     assert(approx(sanitized(0), 0.5));
     assert(approx(sanitized(1), -0.25));
     assert(approx(sanitized(2), 0.75));
 
     raw << 10.0, -10.0, 5.0;
-    assert(command->sanitize(raw, sanitized, &reason));
+    assert(command->sanitize(inputs, raw, sanitized, &reason));
     assert(approx(sanitized(0), 2.0));
     assert(approx(sanitized(1), -1.0));
     assert(approx(sanitized(2), 1.0));
 
     Eigen::VectorXd wrong_size(2);
     wrong_size << 0.0, 0.0;
-    assert(!command->sanitize(wrong_size, sanitized, &reason));
+    assert(!command->sanitize(inputs, wrong_size, sanitized, &reason));
     assert(!reason.empty());
 
     raw << 0.0, std::nan(""), 0.0;
-    assert(!command->sanitize(raw, sanitized, &reason));
+    assert(!command->sanitize(inputs, raw, sanitized, &reason));
     assert(!reason.empty());
 
     return 0;

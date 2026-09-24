@@ -420,6 +420,8 @@ public:
         _command_timeout_s = declare_parameter<double>("command_timeout_s", 0.5);
         _sensor_timeout_s = declare_parameter<double>("sensor_timeout_s", 0.5);
 
+        RCLCPP_INFO(get_logger(), "Obs group override: %s", _obs_group_override.c_str());
+
         if(_command_timeout_s < 0.0)
         {
             throw std::runtime_error("Parameter 'command_timeout_s' must be non-negative");

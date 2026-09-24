@@ -3,15 +3,16 @@
       <arg name="example" default="kyon_full_locomotion_flat" />
       <arg name="enable_joy" default="false" />
       <arg name="use_sim_time" default="true" />
-
-      <let name="example_dir"
-            value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
+      <arg name="example_dir"
+            default="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
+      <arg name="actor_obs_group" default="policy" />
 
       <node pkg="policy_deploy_toolkit"
             exec="deploy_policy_node"
             output="screen"
             args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
             <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="obs_group_override" value="$(var actor_obs_group)"/>
             <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
       </node>
 
