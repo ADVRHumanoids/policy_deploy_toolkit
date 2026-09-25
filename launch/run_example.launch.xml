@@ -6,6 +6,7 @@
       <arg name="example_dir"
             default="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
       <arg name="actor_obs_group" default="policy" />
+      <arg name="allow_missing_robot_joints" default="false" />
 
       <node pkg="policy_deploy_toolkit"
             exec="deploy_policy_node"
@@ -13,6 +14,7 @@
             args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
             <param name="use_sim_time" value="$(var use_sim_time)"/>
             <param name="obs_group_override" value="$(var actor_obs_group)"/>
+            <param name="allow_missing_robot_joints" value="$(var allow_missing_robot_joints)"/>
             <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
       </node>
 

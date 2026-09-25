@@ -191,6 +191,11 @@ void IsaacLabJointPosRelObsTerm::process_impl(const Inputs& inputs, Eigen::Vecto
     {
         int policy_id = _joint_ids[i];
         int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointPosRel observation references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
         output(i) = inputs.q(robot_id) - _policy_info.joint_default_pos[policy_id];
     }
 }
@@ -209,6 +214,11 @@ void KyonIsaacJointPosErrorObsTerm::process_impl(const Inputs& inputs, Eigen::Ve
     {
         int policy_id = _joint_ids[i];
         int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointPosError observation references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
         output(i) = inputs.q(robot_id) - inputs.q_ref(robot_id);
     }
 }
@@ -227,6 +237,11 @@ void KyonIsaacJointVelRelObsTerm::process_impl(const Inputs& inputs, Eigen::Vect
     {
         int policy_id = _joint_ids[i];
         int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointVelRel observation references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
         output(i) = inputs.v(robot_id);
     }
 }

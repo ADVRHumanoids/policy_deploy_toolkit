@@ -16,7 +16,8 @@ namespace XBot::policy {
 OnnxPolicy::OnnxPolicy(std::string model_path,
            std::string model_metadata_path, 
            std::string obs_group_override,
-           RobotInfo robot_info)
+           RobotInfo robot_info,
+           bool allow_missing_robot_joints)
     // Store paths/transforms up front; the ONNX session is opened lazily in init()
     // so construction stays cheap and errors happen when the caller explicitly starts the policy.
     : _model_path(std::move(model_path)),
@@ -46,8 +47,9 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         policy_info.joint_default_vel.assign(policy_info.joint_default_pos.size(), 0.0);
     }
     policy_info.joint_names = md["joint_names"].as<std::vector<std::string>>();
-    policy_info.action_size = _output_tensors.back().buffer.size();
-    policy_info.joint_id_policy_to_robot.resize(policy_info.joint_names.size());
+    policy_info.action_size = _output_tensors[_action_output_index].buffer.size();
+    // -1 marks a policy joint with no robot counterpart (only valid when allow_missing_robot_joints is set)
+    policy_info.joint_id_policy_to_robot.assign(policy_info.joint_names.size(), -1);
     policy_info.joint_id_robot_to_policy.assign(robot_info.joint_names.size(), -1);
     policy_info.control_dt = md["ctrl_dt"].as<double>();
     policy_info.stiffness = md["joint_stiffness"].as<std::vector<double>>();
@@ -66,7 +68,15 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         const auto it = robot_joint_ids.find(policy_info.joint_names[policy_id]);
         if(it == robot_joint_ids.end())
         {
-            throw std::runtime_error("Policy joint '" + policy_info.joint_names[policy_id] + "' not found in robot joint names");
+            if(!allow_missing_robot_joints)
+            {
+                throw std::runtime_error("Policy joint '" + policy_info.joint_names[policy_id] + "' not found in robot joint names");
+            }
+
+            // caller opted in to running with e.g. arms disconnected; this joint is left unmapped (-1) and must not be observed/commanded
+            std::cout << "Warning: policy joint '" << policy_info.joint_names[policy_id]
+                      << "' not found in robot joint names, skipping (allow_missing_robot_joints=true)" << std::endl;
+            continue;
         }
 
         const int robot_id = it->second;
@@ -170,11 +180,11 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
 
     }
 
-    if(obs_size != _input_tensors.front().buffer.size())
+    if(obs_size != _input_tensors[_obs_input_index].buffer.size())
     {
         throw std::runtime_error(
             std::format("Total observation size from metadata does not match model input size ({} != {})",
-                        obs_size, _input_tensors.front().buffer.size()));   
+                        obs_size, _input_tensors[_obs_input_index].buffer.size()));   
     }
 
     // parse action configs
@@ -300,6 +310,9 @@ bool OnnxPolicy::run(const Inputs& inputs, Outputs& outputs)
         std::copy_n(output_data, _output_tensors[i].buffer.size(), _output_tensors[i].buffer.begin());
     }
 
+    // Feed recurrent state outputs (e.g. GRU h_out) back into their matching inputs for the next run().
+    _updateRecurrentState();
+
     // Convert raw policy outputs into the typed Eigen output fields expected by the caller.
     _fillOutputs(outputs);
 
@@ -349,7 +362,84 @@ void OnnxPolicy::init_onnxruntime()
     // ORT Run() takes raw const char* arrays; refresh them after vector growth is done
     // so the pointers reference the final string storage.
     _refreshNamePointers();
+
+    // Separate the observation/action tensors from any recurrent state tensors (e.g. GRU h_in/h_out).
+    _identifyIoTensors();
+
     _initialized = true;
+}
+
+std::size_t OnnxPolicy::_findTensorIndex(const std::vector<TensorBuffer>& tensors, const std::string& name, const char* role)
+{
+    for(std::size_t i = 0; i < tensors.size(); ++i)
+    {
+        if(tensors[i].name == name)
+        {
+            return i;
+        }
+    }
+
+    // No exact name match: fall back to the only candidate when there is no ambiguity.
+    if(tensors.size() == 1)
+    {
+        return 0;
+    }
+
+    throw std::runtime_error(
+        std::format("Could not find {} tensor named '{}' among {} candidates", role, name, tensors.size()));
+}
+
+void OnnxPolicy::_identifyIoTensors()
+{
+    _obs_input_index = _findTensorIndex(_input_tensors, "obs", "input");
+    _action_output_index = _findTensorIndex(_output_tensors, "actions", "output");
+
+    // Any remaining inputs are recurrent state (e.g. GRU/LSTM hidden state) that must be
+    // fed back with the matching output from the previous run(); match them by shape.
+    _recurrent_state_pairs.clear();
+    for(std::size_t i = 0; i < _input_tensors.size(); ++i)
+    {
+        if(i == _obs_input_index)
+        {
+            continue;
+        }
+
+        std::size_t match = _output_tensors.size();
+        for(std::size_t j = 0; j < _output_tensors.size(); ++j)
+        {
+            if(j == _action_output_index)
+            {
+                continue;
+            }
+
+            if(_output_tensors[j].shape == _input_tensors[i].shape)
+            {
+                match = j;
+                break;
+            }
+        }
+
+        if(match == _output_tensors.size())
+        {
+            throw std::runtime_error(
+                "Could not find matching recurrent state output for input '" + _input_tensors[i].name + "'");
+        }
+
+        _recurrent_state_pairs.emplace_back(i, match);
+        std::cout << "Recurrent state: input '" << _input_tensors[i].name
+                  << "' <- output '" << _output_tensors[match].name << "'" << std::endl;
+    }
+}
+
+void OnnxPolicy::_updateRecurrentState()
+{
+    for(const auto& [input_idx, output_idx] : _recurrent_state_pairs)
+    {
+        auto& state_input = _input_tensors[input_idx];
+        const auto& state_output = _output_tensors[output_idx];
+        state_input.shape = state_output.shape;
+        state_input.buffer = state_output.buffer;
+    }
 }
 
 OnnxPolicy::TensorBuffer OnnxPolicy::_makeTensorBuffer(const char* name, const Ort::TypeInfo& type_info)
@@ -496,7 +586,7 @@ void OnnxPolicy::_refreshNamePointers()
 
 void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
 {
-    auto& tensor = _input_tensors.back();
+    auto& tensor = _input_tensors[_obs_input_index];
     int buffer_offset = 0;
     for(auto&& obs_term : _obs_terms)
     {
@@ -515,14 +605,15 @@ void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
 
 void OnnxPolicy::_fillOutputs(Outputs& outputs)
 {
-    auto policy_output = Eigen::VectorXf::Map(_output_tensors.back().buffer.data(), _output_tensors.back().buffer.size());
+    auto& action_tensor = _output_tensors[_action_output_index];
+    auto policy_output = Eigen::VectorXf::Map(action_tensor.buffer.data(), action_tensor.buffer.size());
     //std::cout << "Policy output: " << policy_output.transpose().format(2) << std::endl;
 
     // set the raw action vector to the output, which is used as the last_action input in the next run
     outputs.raw_action = policy_output.cast<double>();
 
     // process each action term to fill the corresponding robot outputs
-    auto& tensor = _output_tensors.back();
+    auto& tensor = action_tensor;
     int buffer_offset = 0;
     for(auto&& action_term : _action_terms)
     {

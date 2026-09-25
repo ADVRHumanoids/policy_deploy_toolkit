@@ -417,10 +417,12 @@ public:
     {
         _imu_name = declare_parameter<std::string>("imu_name", "imu_link");
         _obs_group_override = declare_parameter<std::string>("obs_group_override", "");
+        _allow_missing_robot_joints = declare_parameter<bool>("allow_missing_robot_joints", false);
         _command_timeout_s = declare_parameter<double>("command_timeout_s", 0.5);
         _sensor_timeout_s = declare_parameter<double>("sensor_timeout_s", 0.5);
 
         RCLCPP_INFO(get_logger(), "Obs group override: %s", _obs_group_override.c_str());
+        RCLCPP_INFO(get_logger(), "Allow missing robot joints: %s", _allow_missing_robot_joints ? "true" : "false");
 
         if(_command_timeout_s < 0.0)
         {
@@ -463,7 +465,7 @@ public:
         _robot->getPose(_imu->getName(), "base_link", robot_info.base_T_imu);
 
         // build policy wrapper
-        _policy = std::make_unique<XBot::policy::OnnxPolicy>(model_path, model_metadata_path, _obs_group_override, robot_info);
+        _policy = std::make_unique<XBot::policy::OnnxPolicy>(model_path, model_metadata_path, _obs_group_override, robot_info, _allow_missing_robot_joints);
 
         // construct policy wrapper outputs
         _outputs = std::make_unique<XBot::policy::Outputs>(
@@ -561,6 +563,7 @@ private:
     XBot::ImuSensor::ConstPtr _imu;
     std::string _imu_name;
     std::string _obs_group_override;
+    bool _allow_missing_robot_joints{false};
     double _command_timeout_s{0.0};
     double _sensor_timeout_s{0.0};
     std::unique_ptr<XBot::policy::OnnxPolicy> _policy;

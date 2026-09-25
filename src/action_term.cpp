@@ -115,6 +115,11 @@ void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &raw_ac
     {
         int policy_id = _joint_ids[i];
         int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointPositionAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
         outputs.q_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_pos[policy_id] + _offset;
         outputs.k_des(robot_id) = _policy_info.stiffness[policy_id];
         outputs.d_des(robot_id) = _policy_info.damping[policy_id];
@@ -137,6 +142,11 @@ void IsaacLabJointVelocityActionTerm::process_impl(const Eigen::VectorXd &raw_ac
     {
         int policy_id = _joint_ids[i];
         int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointVelocityAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
         outputs.v_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_vel[policy_id] + _offset;
         outputs.ctrl_mode(robot_id) |= 2; // velocity
     }
