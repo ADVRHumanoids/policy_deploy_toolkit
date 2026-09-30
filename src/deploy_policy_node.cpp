@@ -82,7 +82,8 @@ private:
     static bool is_velocity_command(const XBot::policy::CommandSpec& spec)
     {
         return spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand" ||
-               spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:TerrainBasedVelocityCommandPLAY";
+               spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:TerrainBasedVelocityCommandPLAY" ||
+               spec.class_type == "isaaclab.envs.mdp.commands.velocity_command:UniformVelocityCommand";
     }
 
     void create_velocity_subscription(const std::string& name)
