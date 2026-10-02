@@ -35,6 +35,8 @@ const std::vector<CommandSpec>& command_specs() const;
 
 const std::vector<SensorSpec>& sensor_specs() const;
 
+const std::vector<std::string>& recurrent_state_names() const;
+
 std::map<std::string, Eigen::VectorXd> default_commands() const;
 
 bool sanitize_command(const Inputs& inputs,
@@ -67,7 +69,7 @@ static std::size_t _findTensorIndex(const std::vector<TensorBuffer>& tensors, co
 
 void _refreshNamePointers();
 void _identifyIoTensors();
-void _fillInputBuffers(const Inputs& inputs);
+void _fillInputBuffers(const Inputs& inputs, Outputs& outputs);
 void _fillOutputs(Outputs& outputs);
 void _updateRecurrentState();
 
@@ -91,6 +93,7 @@ std::size_t _obs_input_index{0};
 std::size_t _action_output_index{0};
 // (input index, output index) pairs for recurrent state tensors (e.g. GRU/LSTM hidden state).
 std::vector<std::pair<std::size_t, std::size_t>> _recurrent_state_pairs;
+std::vector<std::string> _recurrent_state_names;
 
 std::vector<std::unique_ptr<ObsTerm>> _obs_terms;
 std::vector<std::unique_ptr<ActionTerm>> _action_terms;

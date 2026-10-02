@@ -39,6 +39,8 @@ target_link_libraries(policy_deploy_toolkit
 # node
 add_executable(deploy_policy_node
     src/deploy_policy_node.cpp
+    src/ros_command_receiver.cpp
+    src/ros_sensor_receiver.cpp
     )
 
 target_link_libraries(deploy_policy_node

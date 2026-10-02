@@ -229,6 +229,11 @@ const std::vector<SensorSpec> &OnnxPolicy::sensor_specs() const
     return _sensor_specs;
 }
 
+const std::vector<std::string>& OnnxPolicy::recurrent_state_names() const
+{
+    return _recurrent_state_names;
+}
+
 std::map<std::string, Eigen::VectorXd> OnnxPolicy::default_commands() const
 {
     std::map<std::string, Eigen::VectorXd> commands;
@@ -266,7 +271,7 @@ bool OnnxPolicy::run(const Inputs& inputs, Outputs& outputs)
 {
     // Convert robot/control state into the ONNX input layout. This is intentionally
     // isolated because the exact packing will come from the metadata file.
-    _fillInputBuffers(inputs);
+    _fillInputBuffers(inputs, outputs);
     // Packing may resize or rename buffers once metadata support lands, so rebuild
     // the raw ORT name arrays immediately before execution.
     _refreshNamePointers();
@@ -308,6 +313,15 @@ bool OnnxPolicy::run(const Inputs& inputs, Outputs& outputs)
 
         auto* output_data = output_values[i].GetTensorMutableData<float>();
         std::copy_n(output_data, _output_tensors[i].buffer.size(), _output_tensors[i].buffer.begin());
+    }
+
+    outputs.raw_recurrent_states.clear();
+    outputs.raw_recurrent_states.reserve(_recurrent_state_pairs.size());
+    for(const auto& state_pair : _recurrent_state_pairs)
+    {
+           const auto& state_buffer = _output_tensors[state_pair.second].buffer;
+           outputs.raw_recurrent_states.emplace_back(Eigen::Map<const Eigen::VectorXf>(
+              state_buffer.data(), static_cast<Eigen::Index>(state_buffer.size())));
     }
 
     // Feed recurrent state outputs (e.g. GRU h_out) back into their matching inputs for the next run().
@@ -397,6 +411,7 @@ void OnnxPolicy::_identifyIoTensors()
     // Any remaining inputs are recurrent state (e.g. GRU/LSTM hidden state) that must be
     // fed back with the matching output from the previous run(); match them by shape.
     _recurrent_state_pairs.clear();
+    _recurrent_state_names.clear();
     for(std::size_t i = 0; i < _input_tensors.size(); ++i)
     {
         if(i == _obs_input_index)
@@ -426,6 +441,7 @@ void OnnxPolicy::_identifyIoTensors()
         }
 
         _recurrent_state_pairs.emplace_back(i, match);
+        _recurrent_state_names.push_back(_output_tensors[match].name);
         std::cout << "Recurrent state: input '" << _input_tensors[i].name
                   << "' <- output '" << _output_tensors[match].name << "'" << std::endl;
     }
@@ -584,7 +600,7 @@ void OnnxPolicy::_refreshNamePointers()
     }
 }
 
-void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
+void OnnxPolicy::_fillInputBuffers(const Inputs& inputs, Outputs& outputs)
 {
     auto& tensor = _input_tensors[_obs_input_index];
     int buffer_offset = 0;
@@ -599,6 +615,8 @@ void OnnxPolicy::_fillInputBuffers(const Inputs& inputs)
         buffer_offset += term_output.size();
     }
 
+    outputs.raw_observation = Eigen::Map<const Eigen::VectorXf>(
+        tensor.buffer.data(), static_cast<Eigen::Index>(tensor.buffer.size()));
     auto policy_input = Eigen::VectorXf::Map(tensor.buffer.data(), tensor.buffer.size());
     // std::cout << "Policy input: " << policy_input.transpose().format(2) << std::endl;
 }

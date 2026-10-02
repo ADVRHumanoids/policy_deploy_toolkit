@@ -15,6 +15,10 @@ std::unique_ptr<ActionTerm> XBot::policy::ActionTerm::create(std::string func,
     {
         return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
     } 
+    if(func == "kyon_isaac.tasks.locomotion.velocity.mdp.actions:LimitedJointPositionAction")
+    {
+        return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
+    }
     else if(func == "isaaclab.envs.mdp.actions.joint_actions:JointVelocityAction") 
     {
         return std::make_unique<IsaacLabJointVelocityActionTerm>(robot_info, policy_info, config);
@@ -120,7 +124,14 @@ void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &raw_ac
             throw std::runtime_error(
                 "JointPositionAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
         }
-        outputs.q_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_pos[policy_id] + _offset;
+
+        float q_des = raw_action(i) * _scale + _policy_info.joint_default_pos[policy_id] + _offset;
+        float q_des_clamped = std::clamp(q_des, 
+            _robot_info.joint_pos_min(robot_id), 
+            _robot_info.joint_pos_max(robot_id)
+        );
+
+        outputs.q_des(robot_id) = q_des_clamped;
         outputs.k_des(robot_id) = _policy_info.stiffness[policy_id];
         outputs.d_des(robot_id) = _policy_info.damping[policy_id];
         outputs.ctrl_mode(robot_id) |= (1 + 8 + 16); // position + stiffness + damping

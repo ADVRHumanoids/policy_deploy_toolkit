@@ -1,415 +1,26 @@
 #include <chrono>
-#include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <format>
 #include <iostream>
-#include <map>
 #include <memory>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <utility>
-#include <variant>
 #include <vector>
 
 #include "deploy_onnx.h"
-#include <geometry_msgs/msg/twist.hpp>
-#include <geometry_msgs/msg/twist_stamped.hpp>
+#include "ros_command_receiver.h"
+#include "ros_sensor_receiver.h"
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/msg/point_field.hpp>
-#include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <xbot2_interface/robotinterface2.h>
 #include <xbot2_interface/ros2/config_from_param.hpp>
-
-#include <xbot2_diagnostics/ros2_publisher.h>
 
 namespace {
 
 using namespace std::chrono_literals;
-
-class RosCommandReceiver {
-public:
-    RosCommandReceiver(rclcpp::Node& node,
-                       const XBot::policy::OnnxPolicy& policy,
-                       double timeout_s):
-        _node(node),
-        _policy(policy),
-        _timeout_s(timeout_s),
-        _defaults(policy.default_commands())
-    {
-        for(const auto& spec : policy.command_specs())
-        {
-            CommandState state;
-            state.spec = spec;
-            state.value = _defaults.at(spec.name);
-            state.stamp = _node.now();
-            _states.emplace(spec.name, std::move(state));
-
-            if(is_velocity_command(spec))
-            {
-                create_velocity_subscription(spec.name);
-            }
-            else
-            {
-                create_raw_subscription(spec.name);
-            }
-        }
-    }
-
-    void fill_inputs(XBot::policy::Inputs& inputs, const rclcpp::Time& now)
-    {
-        for(auto& [name, state] : _states)
-        {
-            const bool stale = !state.has_value || (now - state.stamp).seconds() > _timeout_s;
-            inputs.command[name] = stale ? _defaults.at(name) : state.value;
-        }
-        _inputs = inputs;
-    }
-
-private:
-    struct CommandState {
-        XBot::policy::CommandSpec spec;
-        Eigen::VectorXd value;
-        rclcpp::Time stamp;
-        bool has_value{false};
-    };
-    
-    XBot::policy::Inputs _inputs;
-
-    static bool is_velocity_command(const XBot::policy::CommandSpec& spec)
-    {
-        return spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand" ||
-               spec.class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:TerrainBasedVelocityCommandPLAY" ||
-               spec.class_type == "isaaclab.envs.mdp.commands.velocity_command:UniformVelocityCommand";
-    }
-
-    void create_velocity_subscription(const std::string& name)
-    {
-        using Message = geometry_msgs::msg::Twist;
-
-        const auto topic = "~/commands/" + name;
-        auto subscription = _node.create_subscription<Message>(
-            topic,
-            rclcpp::QoS(1).best_effort(),
-            [this, name](Message::ConstSharedPtr msg) {
-                Eigen::VectorXd raw(3);
-                raw << msg->linear.x, msg->linear.y, msg->angular.z;
-                store_command(name, raw);
-            });
-
-        _subscriptions.push_back(std::move(subscription));
-        RCLCPP_INFO(_node.get_logger(), "Subscribed to command '%s' on '%s'", name.c_str(), topic.c_str());
-    }
-
-    void create_raw_subscription(const std::string& name)
-    {
-        using Message = std_msgs::msg::Float64MultiArray;
-
-        const auto topic = "~/commands/" + name + "/raw";
-        auto subscription = _node.create_subscription<Message>(
-            topic,
-            rclcpp::QoS(1).best_effort(),
-            [this, name](Message::ConstSharedPtr msg) {
-                Eigen::VectorXd raw(static_cast<int>(msg->data.size()));
-                for(int i = 0; i < raw.size(); ++i)
-                {
-                    raw(i) = msg->data[static_cast<std::size_t>(i)];
-                }
-
-                store_command(name, raw);
-            });
-
-        _subscriptions.push_back(std::move(subscription));
-        RCLCPP_INFO(_node.get_logger(), "Subscribed to command '%s' on '%s'", name.c_str(), topic.c_str());
-    }
-
-    void store_command(const std::string& name, const Eigen::VectorXd& raw)
-    {
-        Eigen::VectorXd sanitized;
-        std::string reason;
-        if(!_policy.sanitize_command(_inputs,name, raw, sanitized, &reason))
-        {
-            RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                 *_node.get_clock(),
-                                 1000,
-                                 "Ignoring command '%s': %s",
-                                 name.c_str(),
-                                 reason.c_str());
-            return;
-        }
-
-        auto it = _states.find(name);
-        if(it == _states.end())
-        {
-            RCLCPP_WARN(_node.get_logger(), "Ignoring unknown command '%s'", name.c_str());
-            return;
-        }
-
-        it->second.value = std::move(sanitized);
-        it->second.stamp = _node.now();
-        it->second.has_value = true;
-    }
-
-    rclcpp::Node& _node;
-    const XBot::policy::OnnxPolicy& _policy;
-    double _timeout_s;
-    std::map<std::string, Eigen::VectorXd> _defaults;
-    std::map<std::string, CommandState> _states;
-    std::vector<rclcpp::SubscriptionBase::SharedPtr> _subscriptions;
-};
-
-class RosSensorReceiver {
-public:
-    RosSensorReceiver(rclcpp::Node& node,
-                      const XBot::policy::OnnxPolicy& policy,
-                      double timeout_s):
-        _node(node),
-        _timeout_s(timeout_s)
-    {
-        for(const auto& spec : policy.sensor_specs())
-        {
-            if(std::holds_alternative<XBot::policy::HeightScanSpec>(spec))
-            {
-                create_height_scan_subscription(std::get<XBot::policy::HeightScanSpec>(spec));
-            }
-            else
-            {
-                throw std::runtime_error("Unsupported sensor spec in ROS receiver");
-            }
-        }
-    }
-
-    bool fill_inputs(XBot::policy::Inputs& inputs, const rclcpp::Time& now)
-    {
-        if(_height_scan_states.empty())
-        {
-            return true;
-        }
-
-        std::lock_guard<std::mutex> lock(_mutex);
-        for(auto& [name, state] : _height_scan_states)
-        {
-            if(!state.has_value)
-            {
-                RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                     *_node.get_clock(),
-                                     1000,
-                                     "Waiting for height scan '%s'",
-                                     name.c_str());
-                return false;
-            }
-
-            if((now - state.stamp).seconds() > _timeout_s)
-            {
-                RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                     *_node.get_clock(),
-                                     1000,
-                                     "Height scan '%s' is stale; reusing last valid scan",
-                                     name.c_str());
-            }
-
-            inputs.height_scan = state.value;
-        }
-
-        return true;
-    }
-
-private:
-    struct HeightScanState {
-        XBot::policy::HeightScanSpec spec;
-        Eigen::VectorXd value;
-        rclcpp::Time stamp;
-        bool has_value{false};
-    };
-
-    void create_height_scan_subscription(const XBot::policy::HeightScanSpec& spec)
-    {
-        if(spec.size <= 0)
-        {
-            throw std::runtime_error("Height scan sensor '" + spec.name + "' has non-positive size");
-        }
-
-        HeightScanState state;
-        state.spec = spec;
-        state.value = Eigen::VectorXd::Zero(spec.size);
-        state.stamp = _node.now();
-        _height_scan_states.emplace(spec.name, std::move(state));
-
-        auto stats_pub = std::make_shared<XBot::diagnostics::Ros2StatsPublisher>(
-            _node,
-            std::format("/controller/{}/{}/delay", _node.get_name(), spec.name),
-            "deploy_policy_node",
-            "delay",
-            1.0
-        );
-
-        using Message = sensor_msgs::msg::PointCloud2;
-        const auto topic = "~/sensors/" + spec.name + "/points";
-        auto subscription = _node.create_subscription<Message>(
-            topic,
-            rclcpp::SensorDataQoS().keep_last(1).best_effort(),
-            [this, name = spec.name, stats_pub](Message::ConstSharedPtr msg) {
-                const auto delay = (_node.now() - rclcpp::Time(msg->header.stamp)).seconds();
-                stats_pub->update_and_publish(delay);
-                store_height_scan(name, *msg);
-            });
-
-        _subscriptions.push_back(std::move(subscription));
-        RCLCPP_INFO(_node.get_logger(), "Subscribed to height scan '%s' on '%s'", spec.name.c_str(), topic.c_str());
-    }
-
-    void store_height_scan(const std::string& name, const sensor_msgs::msg::PointCloud2& msg)
-    {
-        auto it = _height_scan_states.find(name);
-        if(it == _height_scan_states.end())
-        {
-            RCLCPP_WARN(_node.get_logger(), "Ignoring unknown height scan '%s'", name.c_str());
-            return;
-        }
-
-        const auto expected_size = static_cast<std::size_t>(it->second.spec.size);
-        const auto point_count = static_cast<std::size_t>(msg.width) * static_cast<std::size_t>(msg.height);
-        if(point_count != expected_size)
-        {
-            RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                 *_node.get_clock(),
-                                 1000,
-                                 "Ignoring height scan '%s': expected %zu points, got %zu",
-                                 name.c_str(),
-                                 expected_size,
-                                 point_count);
-            return;
-        }
-
-        const auto* z_field = find_field(msg, "z");
-        if(!z_field)
-        {
-            RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                 *_node.get_clock(),
-                                 1000,
-                                 "Ignoring height scan '%s': PointCloud2 has no z field",
-                                 name.c_str());
-            return;
-        }
-
-        if(msg.is_bigendian)
-        {
-            RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                 *_node.get_clock(),
-                                 1000,
-                                 "Ignoring height scan '%s': big-endian PointCloud2 data is unsupported",
-                                 name.c_str());
-            return;
-        }
-
-        if(z_field->count < 1 ||
-           (z_field->datatype != sensor_msgs::msg::PointField::FLOAT32 &&
-            z_field->datatype != sensor_msgs::msg::PointField::FLOAT64))
-        {
-            RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                 *_node.get_clock(),
-                                 1000,
-                                 "Ignoring height scan '%s': z field must be float32 or float64",
-                                 name.c_str());
-            return;
-        }
-
-        if(msg.point_step == 0 ||
-           msg.row_step < static_cast<std::size_t>(msg.width) * msg.point_step ||
-           z_field->offset + scalar_size(*z_field) > msg.point_step)
-        {
-            RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                 *_node.get_clock(),
-                                 1000,
-                                 "Ignoring height scan '%s': malformed PointCloud2 layout",
-                                 name.c_str());
-            return;
-        }
-
-        const auto min_data_size = (point_count == 0) ? 0 :
-            (static_cast<std::size_t>(msg.height) - 1) * msg.row_step +
-            (static_cast<std::size_t>(msg.width) - 1) * msg.point_step +
-            z_field->offset + scalar_size(*z_field);
-        if(msg.data.size() < min_data_size)
-        {
-            RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                 *_node.get_clock(),
-                                 1000,
-                                 "Ignoring height scan '%s': PointCloud2 data is shorter than its layout",
-                                 name.c_str());
-            return;
-        }
-
-        Eigen::VectorXd scan(static_cast<int>(point_count));
-        for(std::size_t row = 0; row < msg.height; ++row)
-        {
-            for(std::size_t col = 0; col < msg.width; ++col)
-            {
-                const auto i = row * static_cast<std::size_t>(msg.width) + col;
-                const auto offset = row * msg.row_step + col * msg.point_step + z_field->offset;
-                scan(static_cast<int>(i)) = read_z(msg.data.data() + offset, *z_field);
-                if(!std::isfinite(scan(static_cast<int>(i))))
-                {
-                    RCLCPP_WARN_THROTTLE(_node.get_logger(),
-                                         *_node.get_clock(),
-                                         1000,
-                                         "Ignoring height scan '%s': z value %zu is not finite",
-                                         name.c_str(),
-                                         i);
-                    return;
-                }
-            }
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            it->second.value = std::move(scan);
-            it->second.stamp = _node.now();
-            it->second.has_value = true;
-        }
-    }
-
-    static const sensor_msgs::msg::PointField* find_field(const sensor_msgs::msg::PointCloud2& msg,
-                                                          const std::string& name)
-    {
-        for(const auto& field : msg.fields)
-        {
-            if(field.name == name)
-            {
-                return &field;
-            }
-        }
-        return nullptr;
-    }
-
-    static std::size_t scalar_size(const sensor_msgs::msg::PointField& field)
-    {
-        return field.datatype == sensor_msgs::msg::PointField::FLOAT64 ? sizeof(double) : sizeof(float);
-    }
-
-    static double read_z(const std::uint8_t* data, const sensor_msgs::msg::PointField& field)
-    {
-        if(field.datatype == sensor_msgs::msg::PointField::FLOAT64)
-        {
-            double value;
-            std::memcpy(&value, data, sizeof(value));
-            return value;
-        }
-
-        float value;
-        std::memcpy(&value, data, sizeof(value));
-        return static_cast<double>(value);
-    }
-
-    rclcpp::Node& _node;
-    double _timeout_s;
-    std::mutex _mutex;
-    std::map<std::string, HeightScanState> _height_scan_states;
-    std::vector<rclcpp::SubscriptionBase::SharedPtr> _subscriptions;
-};
+using policy_deploy::RosCommandReceiver;
+using policy_deploy::RosSensorReceiver;
 
 class PolicyDeployNode final : public rclcpp::Node {
 public:
@@ -464,6 +75,10 @@ public:
         XBot::policy::RobotInfo robot_info;
         robot_info.joint_names = _robot->getVNames();
         _robot->getPose(_imu->getName(), "base_link", robot_info.base_T_imu);
+        Eigen::VectorXd qmin, qmax;
+        _robot->getJointLimits(qmin, qmax);
+        robot_info.joint_pos_min = qmin.cast<float>();
+        robot_info.joint_pos_max = qmax.cast<float>();
 
         // build policy wrapper
         _policy = std::make_unique<XBot::policy::OnnxPolicy>(model_path, model_metadata_path, _obs_group_override, robot_info, _allow_missing_robot_joints);
@@ -475,6 +90,17 @@ public:
 
         _command_receiver = std::make_unique<RosCommandReceiver>(*this, *_policy, _command_timeout_s);
         _sensor_receiver = std::make_unique<RosSensorReceiver>(*this, *_policy, _sensor_timeout_s);
+        _observation_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/observations", 10);
+        _action_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/actions", 10);
+        const auto& recurrent_state_names = _policy->recurrent_state_names();
+        for(std::size_t i = 0; i < recurrent_state_names.size(); ++i)
+        {
+            const auto topic = "policy/hidden_states/state_" + std::to_string(i);
+            _hidden_state_publishers.push_back(
+                create_publisher<std_msgs::msg::Float32MultiArray>(topic, 10));
+            RCLCPP_INFO(get_logger(), "Publishing recurrent state '%s' on '%s'",
+                        recurrent_state_names[i].c_str(), topic.c_str());
+        }
 
         // buffers
         _vec_nq.resize(_robot->getNq());
@@ -510,6 +136,7 @@ private:
         {
             std::this_thread::sleep_for(1ms);
         }
+
         if(!rclcpp::ok())
         {
             return;
@@ -537,6 +164,34 @@ private:
 
         // run policy
         _policy->run(_inputs, outputs);
+
+        std_msgs::msg::Float32MultiArray observation_msg;
+            observation_msg.data.assign(
+                outputs.raw_observation.data(),
+                outputs.raw_observation.data() + outputs.raw_observation.size());
+        _observation_publisher->publish(observation_msg);
+
+        std_msgs::msg::Float32MultiArray action_msg;
+        action_msg.data.resize(outputs.raw_action.size());
+        for(Eigen::Index i = 0; i < outputs.raw_action.size(); ++i)
+        {
+            action_msg.data[i] = static_cast<float>(outputs.raw_action[i]);
+        }
+        _action_publisher->publish(action_msg);
+
+        const auto& recurrent_state_names = _policy->recurrent_state_names();
+        for(std::size_t i = 0; i < outputs.raw_recurrent_states.size(); ++i)
+        {
+            std_msgs::msg::Float32MultiArray state_msg;
+                const auto& recurrent_state = outputs.raw_recurrent_states[i];
+                state_msg.data.assign(recurrent_state.data(), recurrent_state.data() + recurrent_state.size());
+            std_msgs::msg::MultiArrayDimension state_dimension;
+            state_dimension.label = recurrent_state_names[i];
+            state_dimension.size = static_cast<uint32_t>(state_msg.data.size());
+            state_dimension.stride = state_dimension.size;
+            state_msg.layout.dim.push_back(state_dimension);
+            _hidden_state_publishers[i]->publish(state_msg);
+        }
 
         //
         fill_ctrl_mode();
@@ -570,6 +225,9 @@ private:
     std::unique_ptr<XBot::policy::OnnxPolicy> _policy;
     std::unique_ptr<RosCommandReceiver> _command_receiver;
     std::unique_ptr<RosSensorReceiver> _sensor_receiver;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr _observation_publisher;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr _action_publisher;
+    std::vector<rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr> _hidden_state_publishers;
     XBot::policy::Inputs _inputs;
     std::unique_ptr<XBot::policy::Outputs> _outputs;
     std::vector<int> _vid_to_jid;
