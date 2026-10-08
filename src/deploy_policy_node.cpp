@@ -27,6 +27,7 @@ public:
     PolicyDeployNode()
         : rclcpp::Node("policy_deploy_node")
     {
+        _node_start_time = now();
         _imu_name = declare_parameter<std::string>("imu_name", "imu_link");
         _obs_group_override = declare_parameter<std::string>("obs_group_override", "");
         _allow_missing_robot_joints = declare_parameter<bool>("allow_missing_robot_joints", false);
@@ -75,10 +76,17 @@ public:
         XBot::policy::RobotInfo robot_info;
         robot_info.joint_names = _robot->getVNames();
         _robot->getPose(_imu->getName(), "base_link", robot_info.base_T_imu);
+
+        double joint_velocity_limit_scale = declare_parameter<double>("joint_velocity_limit_scale", 1.0);
+        RCLCPP_INFO(get_logger(), "Joint velocity limit scale: %f", joint_velocity_limit_scale);
+
         Eigen::VectorXd qmin, qmax;
         _robot->getJointLimits(qmin, qmax);
         robot_info.joint_pos_min = qmin.cast<float>();
         robot_info.joint_pos_max = qmax.cast<float>();
+        Eigen::VectorXd vmax;
+        _robot->getVelocityLimits(vmax);
+        robot_info.joint_vel_max = vmax.cast<float>() * joint_velocity_limit_scale;
 
         // build policy wrapper
         _policy = std::make_unique<XBot::policy::OnnxPolicy>(model_path, model_metadata_path, _obs_group_override, robot_info, _allow_missing_robot_joints);
@@ -89,7 +97,7 @@ public:
             robot_info.joint_names.size());
 
         _command_receiver = std::make_unique<RosCommandReceiver>(*this, *_policy, _command_timeout_s);
-        _sensor_receiver = std::make_unique<RosSensorReceiver>(*this, *_policy, _sensor_timeout_s);
+        _sensor_receiver = std::make_unique<RosSensorReceiver>(*this, *_policy, _sensor_timeout_s, robot_info.base_T_imu.linear());
         _observation_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/observations", 10);
         _action_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/actions", 10);
         const auto& recurrent_state_names = _policy->recurrent_state_names();
@@ -142,6 +150,9 @@ private:
             return;
         }
 
+        _inputs.w_R_imu = _imu->getOrientation();
+        _sensor_receiver->update_imu(_inputs.w_R_imu);
+
         // fill inputs for policy
         _inputs.last_action = outputs.raw_action; // for the first iteration, last action is zero
         const auto ros_now = now();
@@ -150,6 +161,7 @@ private:
         {
             return;
         }
+        _inputs.time_sec = (now() - _node_start_time).seconds();
         _inputs.q = _robot->getJointPositionMinimal();
         _inputs.v = _robot->getJointVelocity();
         _inputs.tau = _robot->getJointEffort();
@@ -158,12 +170,20 @@ private:
         _inputs.tau_ref = _robot->getEffortReferenceFeedback();
         _inputs.k = _robot->getStiffness();
         _inputs.d = _robot->getDamping();
-        _inputs.w_R_imu = _imu->getOrientation();
         _inputs.imu_omega = _imu->getAngularVelocity();
         _inputs.imu_acc = _imu->getLinearAcceleration();
 
+        // initialize outputs as needed
+        if(_inputs.step == 0)
+        {
+            outputs.q_des = _inputs.q_ref;
+        }
+
         // run policy
         _policy->run(_inputs, outputs);
+
+        // increment step counter
+        _inputs.step++;
 
         std_msgs::msg::Float32MultiArray observation_msg;
             observation_msg.data.assign(
@@ -231,6 +251,7 @@ private:
     XBot::policy::Inputs _inputs;
     std::unique_ptr<XBot::policy::Outputs> _outputs;
     std::vector<int> _vid_to_jid;
+    rclcpp::Time _node_start_time{0, 0, RCL_ROS_TIME};
     Eigen::VectorXd _vec_nq;
     Eigen::Matrix<uint8_t, Eigen::Dynamic, 1> _vec_nj;
     std::chrono::steady_clock::time_point _loop_start;

@@ -70,7 +70,7 @@ static std::size_t _findTensorIndex(const std::vector<TensorBuffer>& tensors, co
 void _refreshNamePointers();
 void _identifyIoTensors();
 void _fillInputBuffers(const Inputs& inputs, Outputs& outputs);
-void _fillOutputs(Outputs& outputs);
+void _fillOutputs(const Inputs& inputs, Outputs& outputs);
 void _updateRecurrentState();
 
 std::string _model_path;

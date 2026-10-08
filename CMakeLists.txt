@@ -11,6 +11,8 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(xbot2_diagnostics QUIET)
 
 # options
@@ -49,6 +51,8 @@ target_link_libraries(deploy_policy_node
     xbot2_diagnostics::xbot2_diagnostics_ros
     xbot2::xbot2
     rclcpp::rclcpp
+    tf2::tf2
+    tf2_ros::tf2_ros
     std_msgs::std_msgs__rosidl_typesupport_cpp
     geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
     sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
@@ -100,6 +104,21 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME command_term_test COMMAND command_term_test)
+
+    add_executable(ros_sensor_receiver_test
+        test/ros_sensor_receiver_test.cpp
+        src/ros_sensor_receiver.cpp
+    )
+    target_link_libraries(ros_sensor_receiver_test PRIVATE
+        policy_deploy_toolkit
+        rclcpp::rclcpp
+        tf2::tf2
+        tf2_ros::tf2_ros
+        sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
+        xbot2_diagnostics::xbot2_diagnostics_ros
+    )
+    add_test(NAME ros_sensor_receiver_test COMMAND ros_sensor_receiver_test)
+    set_tests_properties(ros_sensor_receiver_test PROPERTIES TIMEOUT 30)
 endif()
 
 

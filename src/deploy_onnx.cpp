@@ -328,7 +328,7 @@ bool OnnxPolicy::run(const Inputs& inputs, Outputs& outputs)
     _updateRecurrentState();
 
     // Convert raw policy outputs into the typed Eigen output fields expected by the caller.
-    _fillOutputs(outputs);
+    _fillOutputs(inputs, outputs);
 
     return true;
 }
@@ -621,7 +621,7 @@ void OnnxPolicy::_fillInputBuffers(const Inputs& inputs, Outputs& outputs)
     // std::cout << "Policy input: " << policy_input.transpose().format(2) << std::endl;
 }
 
-void OnnxPolicy::_fillOutputs(Outputs& outputs)
+void OnnxPolicy::_fillOutputs(const Inputs& inputs, Outputs& outputs)
 {
     auto& action_tensor = _output_tensors[_action_output_index];
     auto policy_output = Eigen::VectorXf::Map(action_tensor.buffer.data(), action_tensor.buffer.size());
@@ -640,7 +640,7 @@ void OnnxPolicy::_fillOutputs(Outputs& outputs)
 
         //std::cout << "Raw action term: " << raw_action.transpose().format(2) << std::endl;
 
-        action_term->process(raw_action.cast<double>(), outputs);
+        action_term->process(raw_action.cast<double>(), inputs, outputs);
     }
 }
 

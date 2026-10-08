@@ -28,9 +28,9 @@ public:
 
     int size() const;
 
-    void process(const Eigen::VectorXd& raw_action, Outputs& outputs);
+    void process(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs);
 
-    virtual void process_impl(const Eigen::VectorXd& raw_action, Outputs& outputs) = 0;
+    virtual void process_impl(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs) = 0;
 
 protected:
 
@@ -51,7 +51,7 @@ public:
                                     PolicyInfo policy_info,
                                     YAML::Node config);
 
-    void process_impl(const Eigen::VectorXd& raw_action, Outputs& outputs) override;
+    void process_impl(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs) override;
 
 private:
 
@@ -68,7 +68,7 @@ public:
                                     PolicyInfo policy_info,
                                     YAML::Node config);
 
-    void process_impl(const Eigen::VectorXd& raw_action, Outputs& outputs) override;
+    void process_impl(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs) override;
 
 private:
 
