@@ -7,9 +7,11 @@
       <arg name="depth_downsample" default="center" />
       <!-- raw sensor_msgs/Image, 32FC1; gz default, on the robot e.g. /zed_down/zed_node/depth/depth_registered -->
       <arg name="depth_topic" default="/zed_front_down/depth_image" />
-
-      <let name="example_dir"
-            value="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
+      <arg name="example_dir"
+            default="$(find-pkg-share policy_deploy_toolkit)/examples/$(var example)" />
+      <arg name="actor_obs_group" default="policy" />
+      <arg name="allow_missing_robot_joints" default="false" />
+      <arg name="joint_velocity_limit_scale" default="1.0" />
 
       <node pkg="policy_deploy_toolkit"
             exec="deploy_policy_node"
@@ -17,7 +19,10 @@
             args="$(var example_dir)/policy.onnx $(var example_dir)/deploy_metadata.yaml">
             <param name="use_sim_time" value="$(var use_sim_time)"/>
             <param name="depth_downsample" value="$(var depth_downsample)"/>
-            <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/height_scan_cloud"/> 
+            <param name="obs_group_override" value="$(var actor_obs_group)"/>
+            <param name="allow_missing_robot_joints" value="$(var allow_missing_robot_joints)"/>
+            <param name="joint_velocity_limit_scale" value="$(var joint_velocity_limit_scale)"/>
+            <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/heightscan"/>
             <!-- depth policies: sensor name comes from the isaac scene (front_camera),
                  while the gz sensor publishes under its own name (zed_front_down) -->
             <remap from="/policy_deploy_node/sensors/front_camera/depth" to="$(var depth_topic)"/>

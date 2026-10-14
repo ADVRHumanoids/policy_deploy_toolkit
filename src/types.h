@@ -8,9 +8,11 @@
 
 namespace XBot::policy {
 
-    struct RobotInfo {
+struct RobotInfo {
     std::vector<std::string> joint_names;
     Eigen::Affine3d base_T_imu;
+    Eigen::VectorXf joint_pos_min, joint_pos_max;
+    Eigen::VectorXf joint_vel_max;
 };
 
 struct PolicyInfo {
@@ -27,6 +29,9 @@ struct PolicyInfo {
 };
 
 struct Inputs {
+    uint64_t step = 0;
+    double time_sec = 0;
+
     std::map<std::string, Eigen::VectorXd> command; 
     Eigen::VectorXd last_action;
 
@@ -52,6 +57,8 @@ struct Inputs {
 };
 
 struct Outputs {
+    Eigen::VectorXf raw_observation;
+    std::vector<Eigen::VectorXf> raw_recurrent_states;
     Eigen::VectorXd raw_action;
 
     Eigen::VectorXd q_des;

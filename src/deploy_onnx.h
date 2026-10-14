@@ -7,7 +7,9 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "types.h"
@@ -25,13 +27,16 @@ public:
 OnnxPolicy(std::string model_path,
            std::string model_metadata_path,
            std::string obs_group_override,
-           RobotInfo robot_info);
+           RobotInfo robot_info,
+           bool allow_missing_robot_joints = false);
 
 PolicyInfo policyInfo() const;
 
 const std::vector<CommandSpec>& command_specs() const;
 
 const std::vector<SensorSpec>& sensor_specs() const;
+
+const std::vector<std::string>& recurrent_state_names() const;
 
 std::map<std::string, Eigen::VectorXd> default_commands() const;
 
@@ -61,13 +66,13 @@ static std::string _shapeToString(const std::vector<int64_t>& shape);
 static const char* _tensorElementTypeName(ONNXTensorElementDataType type);
 static std::vector<int64_t> _concreteShape(const std::vector<int64_t>& model_shape);
 static std::size_t _elementCount(const std::vector<int64_t>& shape);
+static std::size_t _findTensorIndex(const std::vector<TensorBuffer>& tensors, const std::string& name, const char* role);
 
 void _refreshNamePointers();
-void _fillInputBuffers(const Inputs& inputs);
-void _fillOutputs(Outputs& outputs);
-void _carryRecurrentState();
-bool _isRecurrentInput(const std::string& name) const;
-const TensorBuffer& _actionOutput() const;
+void _identifyIoTensors(const std::set<std::string>& image_input_names);
+void _fillInputBuffers(const Inputs& inputs, Outputs& outputs);
+void _fillOutputs(const Inputs& inputs, Outputs& outputs);
+void _updateRecurrentState();
 
 std::string _model_path;
 std::string _model_metadata_path;
@@ -83,6 +88,15 @@ std::vector<TensorBuffer> _output_tensors;
 std::vector<const char*> _input_name_ptrs;
 std::vector<const char*> _output_name_ptrs;
 bool _initialized{false};
+
+// Index of the observation input and action output among the (possibly recurrent) I/O tensors.
+std::size_t _obs_input_index{0};
+std::size_t _action_output_index{0};
+// Indices of 2D image inputs (e.g. depth), each named after its observation group.
+std::vector<std::size_t> _image_input_indices;
+// (input index, output index) pairs for recurrent state tensors (e.g. GRU/LSTM hidden state).
+std::vector<std::pair<std::size_t, std::size_t>> _recurrent_state_pairs;
+std::vector<std::string> _recurrent_state_names;
 
 std::vector<std::unique_ptr<ObsTerm>> _obs_terms;
 // --- TEMP DEBUG: term names, parallel to _obs_terms ---

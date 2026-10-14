@@ -15,6 +15,10 @@ std::unique_ptr<ActionTerm> XBot::policy::ActionTerm::create(std::string func,
     {
         return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
     } 
+    if(func == "kyon_isaac.tasks.locomotion.velocity.mdp.actions:LimitedJointPositionAction")
+    {
+        return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
+    }
     else if(func == "isaaclab.envs.mdp.actions.joint_actions:JointVelocityAction") 
     {
         return std::make_unique<IsaacLabJointVelocityActionTerm>(robot_info, policy_info, config);
@@ -95,9 +99,9 @@ int ActionTerm::size() const
     return _size;
 }
 
-void ActionTerm::process(const Eigen::VectorXd &raw_action, Outputs &outputs)
+void ActionTerm::process(const Eigen::VectorXd &raw_action, const Inputs &inputs, Outputs &outputs)
 {
-    process_impl(raw_action, outputs);
+    process_impl(raw_action, inputs, outputs);
 }
 
 IsaacLabJointPositionActionTerm::IsaacLabJointPositionActionTerm(RobotInfo robot_info, 
@@ -109,13 +113,34 @@ IsaacLabJointPositionActionTerm::IsaacLabJointPositionActionTerm(RobotInfo robot
     _scale = config["scale"].as<double>(1.0);
 }
 
-void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &raw_action, Outputs &outputs)
+void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &raw_action, const Inputs &inputs, Outputs &outputs)
 {
     for(std::size_t i = 0; i < _joint_ids.size(); ++i)
     {
         int policy_id = _joint_ids[i];
         int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
-        outputs.q_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_pos[policy_id] + _offset;
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointPositionAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
+
+        // clamp to joint position limits
+        float q_des = raw_action(i) * _scale + _policy_info.joint_default_pos[policy_id] + _offset;
+        float q_des_clamped = std::clamp(q_des, 
+            _robot_info.joint_pos_min(robot_id), 
+            _robot_info.joint_pos_max(robot_id)
+        );
+
+        // clamp to joint velocity limits
+        float v_des = (q_des_clamped - outputs.q_des(robot_id)) / _policy_info.control_dt;
+        float v_des_clamped = std::clamp(v_des,
+            -_robot_info.joint_vel_max(robot_id),
+            _robot_info.joint_vel_max(robot_id) 
+        );
+        q_des_clamped = outputs.q_des(robot_id) + v_des_clamped * _policy_info.control_dt;
+
+        outputs.q_des(robot_id) = q_des_clamped;
         outputs.k_des(robot_id) = _policy_info.stiffness[policy_id];
         outputs.d_des(robot_id) = _policy_info.damping[policy_id];
         outputs.ctrl_mode(robot_id) |= (1 + 8 + 16); // position + stiffness + damping
@@ -131,12 +156,17 @@ IsaacLabJointVelocityActionTerm::IsaacLabJointVelocityActionTerm(RobotInfo robot
     _offset = config["offset"].as<double>(0.0);
 }
 
-void IsaacLabJointVelocityActionTerm::process_impl(const Eigen::VectorXd &raw_action, Outputs &outputs)
+void IsaacLabJointVelocityActionTerm::process_impl(const Eigen::VectorXd &raw_action, const Inputs &inputs, Outputs &outputs)
 {
     for(std::size_t i = 0; i < _joint_ids.size(); ++i)
     {
         int policy_id = _joint_ids[i];
         int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointVelocityAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
         outputs.v_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_vel[policy_id] + _offset;
         outputs.ctrl_mode(robot_id) |= 2; // velocity
     }
