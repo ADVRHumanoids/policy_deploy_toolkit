@@ -167,7 +167,13 @@ void IsaacLabJointVelocityActionTerm::process_impl(const Eigen::VectorXd &raw_ac
             throw std::runtime_error(
                 "JointVelocityAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
         }
-        outputs.v_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_vel[policy_id] + _offset;
+
+        float v_des = raw_action(i) * _scale + _policy_info.joint_default_vel[policy_id] + _offset;
+        float v_des_clamped = std::clamp(v_des,
+            -_robot_info.joint_vel_max(robot_id),
+            _robot_info.joint_vel_max(robot_id) 
+        );
+        outputs.v_des(robot_id) = v_des_clamped;
         outputs.ctrl_mode(robot_id) |= 2; // velocity
     }
 }
