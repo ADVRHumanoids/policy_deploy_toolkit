@@ -174,6 +174,8 @@ void IsaacLabJointVelocityActionTerm::process_impl(const Eigen::VectorXd &raw_ac
             _robot_info.joint_vel_max(robot_id) 
         );
         outputs.v_des(robot_id) = v_des_clamped;
-        outputs.ctrl_mode(robot_id) |= 2; // velocity
+        outputs.k_des(robot_id) = _policy_info.stiffness[policy_id];
+        outputs.d_des(robot_id) = _policy_info.damping[policy_id];
+        outputs.ctrl_mode(robot_id) |= (2 + 8 + 16); // velocity + stiffness + damping
     }
 }

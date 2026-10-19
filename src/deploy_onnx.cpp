@@ -1,4 +1,5 @@
 #include "deploy_onnx.h"
+#include "actuator_gains.h"
 
 #include <algorithm>
 #include <cmath>
@@ -52,8 +53,9 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     policy_info.joint_id_policy_to_robot.assign(policy_info.joint_names.size(), -1);
     policy_info.joint_id_robot_to_policy.assign(robot_info.joint_names.size(), -1);
     policy_info.control_dt = md["ctrl_dt"].as<double>();
-    policy_info.stiffness = md["joint_stiffness"].as<std::vector<double>>();
-    policy_info.damping = md["joint_damping"].as<std::vector<double>>();
+    auto [stiffness, damping] = parse_policy_gains(md, policy_info.joint_names);
+    policy_info.stiffness = std::move(stiffness);
+    policy_info.damping = std::move(damping);
 
     // map policy joint names to robot joint indices and vice versa
     std::unordered_map<std::string, int> robot_joint_ids;
@@ -138,7 +140,10 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
 
         auto func = n_func.as<std::string>();
         auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
-        std::cout << "Observation: " << name << " func: " << func << " size: " << obs_term->size() << std::endl;
+        std::cout << "Observation: " << name << " func: " << func 
+                  << " size: " << obs_term->size() 
+                  << " indices: " << obs_size << ":" << obs_size + obs_term->size()
+                  << std::endl;
         
         // Check if sensor is required for the observation term
         auto params = config["params"];
