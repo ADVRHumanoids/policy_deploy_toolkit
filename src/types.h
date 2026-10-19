@@ -50,6 +50,10 @@ struct Inputs {
     Eigen::Vector3d imu_acc;
 
     Eigen::VectorXd height_scan;
+
+    // [mass delta (kg), CoM offset x/y/z (m), friction foot 1/2/3/4], in training order.
+    Eigen::Matrix<double, 8, 1> adaptation_parameters =
+        (Eigen::Matrix<double, 8, 1>() << 0., 0., 0., 0., 1., 1., 1., 1.).finished();
 };
 
 struct Outputs {

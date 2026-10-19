@@ -41,6 +41,7 @@ target_link_libraries(policy_deploy_toolkit
 # node
 add_executable(deploy_policy_node
     src/deploy_policy_node.cpp
+    src/ros_adaptation_receiver.cpp
     src/ros_command_receiver.cpp
     src/ros_sensor_receiver.cpp
     )
@@ -94,6 +95,28 @@ install(DIRECTORY launch/
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(ros_adaptation_receiver_test
+        test/ros_adaptation_receiver_test.cpp
+        src/ros_adaptation_receiver.cpp
+    )
+    target_include_directories(ros_adaptation_receiver_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(ros_adaptation_receiver_test PRIVATE
+        Eigen3::Eigen
+        rclcpp::rclcpp
+        std_msgs::std_msgs__rosidl_typesupport_cpp
+    )
+    add_test(NAME ros_adaptation_receiver_test COMMAND ros_adaptation_receiver_test)
+    set_tests_properties(ros_adaptation_receiver_test PROPERTIES TIMEOUT 30)
+
+    add_executable(adaptation_parameter_slice_test test/adaptation_parameter_slice_test.cpp)
+    target_link_libraries(adaptation_parameter_slice_test PRIVATE policy_deploy_toolkit)
+    add_test(NAME adaptation_parameter_slice_test COMMAND adaptation_parameter_slice_test)
+
+    add_executable(actuator_gains_test test/actuator_gains_test.cpp)
+    target_include_directories(actuator_gains_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(actuator_gains_test PRIVATE yaml-cpp::yaml-cpp)
+    add_test(NAME actuator_gains_test COMMAND actuator_gains_test)
+
     add_executable(command_term_test
         test/command_term_test.cpp
     )

@@ -9,9 +9,11 @@
 #include <vector>
 
 #include "deploy_onnx.h"
+#include "ros_adaptation_receiver.h"
 #include "ros_command_receiver.h"
 #include "ros_sensor_receiver.h"
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <xbot2_interface/robotinterface2.h>
 #include <xbot2_interface/ros2/config_from_param.hpp>
@@ -97,9 +99,12 @@ public:
             robot_info.joint_names.size());
 
         _command_receiver = std::make_unique<RosCommandReceiver>(*this, *_policy, _command_timeout_s);
+        _adaptation_receiver = std::make_unique<policy_deploy::RosAdaptationReceiver>(*this);
         _sensor_receiver = std::make_unique<RosSensorReceiver>(*this, *_policy, _sensor_timeout_s, robot_info.base_T_imu.linear());
         _observation_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/observations", 10);
         _action_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/actions", 10);
+        _q_ref_publisher = create_publisher<sensor_msgs::msg::JointState>(
+            "policy/q_ref", rclcpp::QoS(10).reliable());
         const auto& recurrent_state_names = _policy->recurrent_state_names();
         for(std::size_t i = 0; i < recurrent_state_names.size(); ++i)
         {
@@ -150,6 +155,17 @@ private:
             return;
         }
 
+        const auto feedback_sample_time = now();
+        _robot->positionToMinimal(_robot->getPositionReferenceFeedback(), _inputs.q_ref);
+        const int offset = _robot->isFloatingBase() ? 6 : 0;
+        const auto& names = _robot->getVNames();
+        sensor_msgs::msg::JointState q_ref_msg;
+        q_ref_msg.header.stamp = feedback_sample_time;
+        q_ref_msg.name.assign(names.begin() + offset, names.end());
+        q_ref_msg.position.assign(_inputs.q_ref.data() + offset,
+                                  _inputs.q_ref.data() + _inputs.q_ref.size());
+        _q_ref_publisher->publish(q_ref_msg);
+
         _inputs.w_R_imu = _imu->getOrientation();
         _sensor_receiver->update_imu(_inputs.w_R_imu);
 
@@ -165,7 +181,6 @@ private:
         _inputs.q = _robot->getJointPositionMinimal();
         _inputs.v = _robot->getJointVelocity();
         _inputs.tau = _robot->getJointEffort();
-        _robot->positionToMinimal(_robot->getPositionReferenceFeedback(), _inputs.q_ref);
         _inputs.v_ref = _robot->getVelocityReferenceFeedback();
         _inputs.tau_ref = _robot->getEffortReferenceFeedback();
         _inputs.k = _robot->getStiffness();
@@ -178,6 +193,8 @@ private:
         {
             outputs.q_des = _inputs.q_ref;
         }
+
+        _adaptation_receiver->fill_inputs(_inputs);
 
         // run policy
         _policy->run(_inputs, outputs);
@@ -244,9 +261,11 @@ private:
     double _sensor_timeout_s{0.0};
     std::unique_ptr<XBot::policy::OnnxPolicy> _policy;
     std::unique_ptr<RosCommandReceiver> _command_receiver;
+    std::unique_ptr<policy_deploy::RosAdaptationReceiver> _adaptation_receiver;
     std::unique_ptr<RosSensorReceiver> _sensor_receiver;
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr _observation_publisher;
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr _action_publisher;
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr _q_ref_publisher;
     std::vector<rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr> _hidden_state_publishers;
     XBot::policy::Inputs _inputs;
     std::unique_ptr<XBot::policy::Outputs> _outputs;

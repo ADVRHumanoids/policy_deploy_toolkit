@@ -42,6 +42,10 @@ std::unique_ptr<ObsTerm> ObsTerm::create(std::string func, RobotInfo robot_info,
     {
         return std::make_unique<KyonIsaacHeightScanObsTerm>(robot_info, policy_info, config);
     }
+    else if(func == "kyon_isaac.tasks.locomotion.velocity.mdp.observations:adaptation_parameter_slice")
+    {
+        return std::make_unique<KyonIsaacAdaptationParameterSliceObsTerm>(robot_info, policy_info, config);
+    }
     else 
     {
         throw std::runtime_error("Unsupported observation function: " + func);
@@ -256,6 +260,29 @@ IsaacLabLastActionObsTerm::IsaacLabLastActionObsTerm(RobotInfo robot_info,
 void IsaacLabLastActionObsTerm::process_impl(const Inputs& inputs, Eigen::VectorXd& output)
 {
     output = inputs.last_action;
+}
+
+KyonIsaacAdaptationParameterSliceObsTerm::KyonIsaacAdaptationParameterSliceObsTerm(
+    RobotInfo robot_info, PolicyInfo policy_info, YAML::Node config)
+    : ObsTerm(robot_info, policy_info, config)
+{
+    _start = config["params"]["start"].as<int>();
+    const int end = config["params"]["end"].as<int>();
+    if(_start < 0 || end <= _start || end > 8)
+    {
+        throw std::runtime_error("Adaptation parameter slice requires 0 <= start < end <= 8");
+    }
+    _size = end - _start;
+}
+
+void KyonIsaacAdaptationParameterSliceObsTerm::process_impl(
+    const Inputs& inputs, Eigen::VectorXd& output)
+{
+    if(!inputs.adaptation_parameters.allFinite())
+    {
+        throw std::runtime_error("Adaptation parameters must be finite");
+    }
+    output = inputs.adaptation_parameters.segment(_start, _size);
 }
 
 KyonIsaacHeightScanObsTerm::KyonIsaacHeightScanObsTerm(RobotInfo robot_info, 

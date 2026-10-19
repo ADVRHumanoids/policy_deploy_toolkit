@@ -130,6 +130,18 @@ public:
     
 };
 
+class KyonIsaacAdaptationParameterSliceObsTerm : public ObsTerm
+{
+public:
+    KyonIsaacAdaptationParameterSliceObsTerm(RobotInfo robot_info, PolicyInfo policy_info,
+                                           YAML::Node config);
+
+    void process_impl(const Inputs& inputs, Eigen::VectorXd& output) override;
+
+private:
+    int _start;
+};
+
 class KyonIsaacHeightScanObsTerm : public ObsTerm
 {
 public:
