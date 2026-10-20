@@ -101,14 +101,14 @@ public:
         _command_receiver = std::make_unique<RosCommandReceiver>(*this, *_policy, _command_timeout_s);
         _adaptation_receiver = std::make_unique<policy_deploy::RosAdaptationReceiver>(*this);
         _sensor_receiver = std::make_unique<RosSensorReceiver>(*this, *_policy, _sensor_timeout_s, robot_info.base_T_imu.linear());
-        _observation_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/observations", 10);
-        _action_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/actions", 10);
+        _observation_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("~/policy/observations", 10);
+        _action_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("~/policy/actions", 10);
         _q_ref_publisher = create_publisher<sensor_msgs::msg::JointState>(
-            "policy/q_ref", rclcpp::QoS(10).reliable());
+            "~/policy/q_ref", rclcpp::QoS(10).reliable());
         const auto& recurrent_state_names = _policy->recurrent_state_names();
         for(std::size_t i = 0; i < recurrent_state_names.size(); ++i)
         {
-            const auto topic = "policy/hidden_states/state_" + std::to_string(i);
+            const auto topic = "~/policy/hidden_states/state_" + std::to_string(i);
             _hidden_state_publishers.push_back(
                 create_publisher<std_msgs::msg::Float32MultiArray>(topic, 10));
             RCLCPP_INFO(get_logger(), "Publishing recurrent state '%s' on '%s'",
