@@ -95,6 +95,10 @@ install(DIRECTORY launch/
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(omnisteering_action_test test/omnisteering_action_test.cpp)
+    target_link_libraries(omnisteering_action_test PRIVATE policy_deploy_toolkit)
+    add_test(NAME omnisteering_action_test COMMAND omnisteering_action_test)
+
     add_executable(ros_adaptation_receiver_test
         test/ros_adaptation_receiver_test.cpp
         src/ros_adaptation_receiver.cpp

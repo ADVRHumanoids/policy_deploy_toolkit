@@ -26,6 +26,8 @@ public:
                PolicyInfo policy_info,
                YAML::Node config);
 
+    virtual ~ActionTerm() = default;
+
     int size() const;
 
     void process(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs);
@@ -34,6 +36,8 @@ public:
 
 protected:
 
+    ActionTerm(RobotInfo robot_info, PolicyInfo policy_info);
+
     int _size = -1;
     std::vector<int> _joint_ids;
     RobotInfo _robot_info;
@@ -41,6 +45,21 @@ protected:
 
 private:
 
+};
+
+class OmnisteeringActionTerm : public ActionTerm
+{
+public:
+    OmnisteeringActionTerm(RobotInfo robot_info, PolicyInfo policy_info, YAML::Node config);
+    void process_impl(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs) override;
+
+private:
+    std::vector<int> _steering_ids, _drive_ids;
+    std::vector<std::string> _wheel_names;
+    std::string _command_name;
+    double _vmax, _wheel_radius, _min_wheel_speed;
+    Eigen::VectorXd _steering_target;
+    bool _initialized = false;
 };
 
 class IsaacLabJointPositionActionTerm : public ActionTerm

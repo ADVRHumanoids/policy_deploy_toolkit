@@ -78,6 +78,13 @@ public:
         XBot::policy::RobotInfo robot_info;
         robot_info.joint_names = _robot->getVNames();
         _robot->getPose(_imu->getName(), "base_link", robot_info.base_T_imu);
+        for(const auto& [name, link] : _robot->getUrdf()->links_)
+        {
+            robot_info.body_names.push_back(name);
+        }
+        robot_info.body_pose_in_base = [this](const std::string& name) {
+            return _robot->getPose(name, "base_link");
+        };
 
         double joint_velocity_limit_scale = declare_parameter<double>("joint_velocity_limit_scale", 1.0);
         RCLCPP_INFO(get_logger(), "Joint velocity limit scale: %f", joint_velocity_limit_scale);

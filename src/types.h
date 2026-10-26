@@ -2,6 +2,7 @@
 #define __XBOT2_DEPLOY_POLICY_TYPES_H
 
 #include <Eigen/Dense>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -13,6 +14,9 @@ struct RobotInfo {
     Eigen::Affine3d base_T_imu;
     Eigen::VectorXf joint_pos_min, joint_pos_max;
     Eigen::VectorXf joint_vel_max;
+    // Live link poses in the command/base frame, refreshed by RobotInterface::sense().
+    std::vector<std::string> body_names;
+    std::function<Eigen::Affine3d(const std::string&)> body_pose_in_base;
 };
 
 struct PolicyInfo {
