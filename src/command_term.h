@@ -4,6 +4,7 @@
 #include "types.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,7 @@ struct CommandSpec
     Eigen::VectorXd min;
     Eigen::VectorXd max;
     Eigen::VectorXd default_value;
+    std::optional<double> filter_cutoff_hz;
 };
 
 class CommandTerm

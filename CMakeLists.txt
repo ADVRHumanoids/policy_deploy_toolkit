@@ -95,6 +95,11 @@ install(DIRECTORY launch/
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(command_filter_test test/command_filter_test.cpp)
+    target_include_directories(command_filter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(command_filter_test PRIVATE Eigen3::Eigen)
+    add_test(NAME command_filter_test COMMAND command_filter_test)
+
     add_executable(omnisteering_action_test test/omnisteering_action_test.cpp)
     target_link_libraries(omnisteering_action_test PRIVATE policy_deploy_toolkit)
     add_test(NAME omnisteering_action_test COMMAND omnisteering_action_test)

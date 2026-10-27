@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -13,7 +14,7 @@ namespace {
 constexpr auto kVelocityCommandClass =
     "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand";
 
-std::unique_ptr<XBot::policy::CommandTerm> make_velocity_command()
+std::unique_ptr<XBot::policy::CommandTerm> make_velocity_command(const std::string& extra = "")
 {
     auto config = YAML::Load(R"(
 ranges:
@@ -21,6 +22,8 @@ ranges:
   lin_vel_y: [-1.0, 1.0]
   ang_vel_z: [-1.0, 1.0]
 )");
+    if(!extra.empty())
+        config["filter_cutoff_hz"] = YAML::Load(extra);
 
     return XBot::policy::CommandTerm::create(
         "base_velocity",
@@ -47,6 +50,21 @@ int main()
     assert(spec.class_type == kVelocityCommandClass);
     assert((spec.field_names == std::vector<std::string>{"lin_vel_x", "lin_vel_y", "ang_vel_z"}));
     assert(spec.default_value.isZero());
+    assert(!spec.filter_cutoff_hz);
+    assert(make_velocity_command("2.5")->spec().filter_cutoff_hz == 2.5);
+    for(const auto* cutoff : {"0", "-1", ".nan", ".inf", "null", "invalid"})
+    {
+        bool rejected = false;
+        try
+        {
+            make_velocity_command(cutoff);
+        }
+        catch(const std::runtime_error&)
+        {
+            rejected = true;
+        }
+        assert(rejected);
+    }
 
     Eigen::VectorXd raw(3);
     Eigen::VectorXd sanitized;

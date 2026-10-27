@@ -199,6 +199,16 @@ KyonIsaacVelocityCommand::KyonIsaacVelocityCommand(RobotInfo robot_info,
                                                    YAML::Node config):
     CommandTerm(std::move(name), std::move(class_type), std::move(robot_info), std::move(policy_info), config)
 {
+    if(const auto cutoff = config["filter_cutoff_hz"])
+    {
+        const double hz = cutoff.as<double>();
+        if(!std::isfinite(hz) || hz <= 0.0)
+        {
+            throw std::runtime_error(
+                std::format("Command '{}' filter_cutoff_hz must be finite and positive", _spec.name));
+        }
+        _spec.filter_cutoff_hz = hz;
+    }
     auto ranges = config["ranges"];
     if(!ranges || !ranges.IsMap())
     {

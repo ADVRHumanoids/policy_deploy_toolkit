@@ -21,7 +21,9 @@ private:
     struct CommandState {
         XBot::policy::CommandSpec spec;
         Eigen::VectorXd value;
+        Eigen::VectorXd filtered_value;
         rclcpp::Time stamp;
+        rclcpp::Time filter_stamp;
         bool has_value{false};
     };
 

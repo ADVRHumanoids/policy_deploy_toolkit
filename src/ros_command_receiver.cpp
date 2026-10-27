@@ -1,4 +1,5 @@
 #include "ros_command_receiver.h"
+#include "command_filter.h"
 
 #include <cstddef>
 #include <utility>
@@ -21,7 +22,9 @@ RosCommandReceiver::RosCommandReceiver(rclcpp::Node& node,
         CommandState state;
         state.spec = spec;
         state.value = _defaults.at(spec.name);
+        state.filtered_value = state.value;
         state.stamp = _node.now();
+        state.filter_stamp = state.stamp;
         _states.emplace(spec.name, std::move(state));
 
         if(is_velocity_command(spec))
@@ -40,7 +43,18 @@ void RosCommandReceiver::fill_inputs(XBot::policy::Inputs& inputs, const rclcpp:
     for(auto& [name, state] : _states)
     {
         const bool stale = !state.has_value || (now - state.stamp).seconds() > _timeout_s;
-        inputs.command[name] = stale ? _defaults.at(name) : state.value;
+        const double dt = (now - state.filter_stamp).seconds();
+        if(stale || dt < 0.0)
+        {
+            // Preserve immediate timeout fallback and discard old filter history.
+            state.filtered_value = _defaults.at(name);
+        }
+        else
+        {
+            filter_command(state.filtered_value, state.value, state.spec.filter_cutoff_hz, dt);
+        }
+        state.filter_stamp = now;
+        inputs.command[name] = state.filtered_value;
     }
     _inputs = inputs;
 }
