@@ -42,6 +42,12 @@ public:
         _allow_missing_robot_joints = declare_parameter<bool>("allow_missing_robot_joints", false);
         _command_timeout_s = declare_parameter<double>("command_timeout_s", 0.5);
         _sensor_timeout_s = declare_parameter<double>("sensor_timeout_s", 0.5);
+        // flat ground: every height scan point at the ground below the pelvis, no scan topic
+        _flat_height_scan = declare_parameter<bool>("flat_heightscan", false);
+        // pelvis height above flat ground: lowest foot frame, standing foot_contact_height above the ground
+        _foot_frames = declare_parameter<std::vector<std::string>>(
+            "foot_frames", {"contact_1", "contact_2", "contact_3", "contact_4"});
+        _foot_contact_height = declare_parameter<double>("foot_contact_height", 0.0);
 
         RCLCPP_INFO(get_logger(), "Obs group override: %s", _obs_group_override.c_str());
         RCLCPP_INFO(get_logger(), "Allow missing robot joints: %s", _allow_missing_robot_joints ? "true" : "false");
@@ -151,9 +157,6 @@ private:
     {
         _ee_command_name = name;
         _ee_frames = declare_parameter<std::vector<std::string>>("ee_frames", {"wrist_yaw_1_link", "wrist_yaw_2_link"});
-        _foot_frames = declare_parameter<std::vector<std::string>>(
-            "foot_frames", {"contact_1", "contact_2", "contact_3", "contact_4"});
-        _foot_contact_height = declare_parameter<double>("foot_contact_height", 0.0);
         // task frame broadcast as TF <ee_task_parent_frame> -> ee_task, for visualization
         _ee_task_parent_frame = declare_parameter<std::string>("ee_task_parent_frame", "base_link");
         _tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -192,20 +195,25 @@ private:
                     _ee_frames[0].c_str(), _ee_frames[1].c_str(), _foot_contact_height);
     }
 
-    // measured EE poses in the task frame, then the 26-dim command; publishes [left pose, right pose, h]
-    void update_ee_command()
+    // base orientation with yaw removed (from the IMU) and pelvis height above flat ground (from the feet)
+    std::pair<Eigen::Matrix3d, double> level_frame_and_height()
     {
         const Eigen::Matrix3d t_R_b = XBot::policy::remove_yaw(_inputs.w_R_imu.toRotationMatrix() * _base_R_imu.transpose());
 
         std::vector<Eigen::Vector3d> feet;
-        Eigen::Affine3d b_T_x;
+        Eigen::Affine3d b_T_foot;
         for(const auto& f : _foot_frames)
         {
-            _robot->getPose(f, "base_link", b_T_x);
-            feet.push_back(b_T_x.translation());
+            _robot->getPose(f, "base_link", b_T_foot);
+            feet.push_back(b_T_foot.translation());
         }
-        const double h = XBot::policy::pelvis_height(t_R_b, feet, _foot_contact_height);
+        return {t_R_b, XBot::policy::pelvis_height(t_R_b, feet, _foot_contact_height)};
+    }
 
+    // measured EE poses in the task frame, then the 26-dim command; publishes [left pose, right pose, h]
+    void update_ee_command(const Eigen::Matrix3d& t_R_b, double h)
+    {
+        Eigen::Affine3d b_T_x;
         std::array<XBot::policy::EePose, 2> meas;
         for(std::size_t arm = 0; arm < 2; ++arm)
         {
@@ -357,9 +365,19 @@ private:
         _inputs.imu_omega = _imu->getAngularVelocity();
         _inputs.imu_acc = _imu->getLinearAcceleration();
 
-        if(!_ee_command_name.empty())
+        if(!_ee_command_name.empty() || _flat_height_scan)
         {
-            update_ee_command();
+            const auto [t_R_b, h] = level_frame_and_height();
+            if(!_ee_command_name.empty())
+            {
+                update_ee_command(t_R_b, h);
+            }
+            // height scan z values in the level base frame: flat ground at -h
+            if(_flat_height_scan)
+            {
+                _inputs.height_scan = Eigen::VectorXd::Constant(_policy->policyInfo().height_scan_size, -h);
+                RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "Flat height scan: pelvis height %.3f m", h);
+            }
         }
 
         // initialize outputs as needed
@@ -434,6 +452,7 @@ private:
     bool _allow_missing_robot_joints{false};
     double _command_timeout_s{0.0};
     double _sensor_timeout_s{0.0};
+    bool _flat_height_scan{false};
     std::unique_ptr<XBot::policy::OnnxPolicy> _policy;
     std::unique_ptr<RosCommandReceiver> _command_receiver;
     std::unique_ptr<RosSensorReceiver> _sensor_receiver;

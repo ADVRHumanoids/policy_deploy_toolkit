@@ -46,11 +46,18 @@ RosSensorReceiver::RosSensorReceiver(rclcpp::Node& node,
     // read organized height clouds column by column (rows = forward x, columns = lateral y)
     _height_scan_column_major = _node.declare_parameter<bool>("height_scan_column_major", false);
 
+    // flat_heightscan: the node fills the height scan itself, no subscription
+    const bool flat_height_scan = _node.has_parameter("flat_heightscan") &&
+                                  _node.get_parameter("flat_heightscan").as_bool();
+
     for(const auto& spec : policy.sensor_specs())
     {
         if(std::holds_alternative<XBot::policy::HeightScanSpec>(spec))
         {
-            create_height_scan_subscription(std::get<XBot::policy::HeightScanSpec>(spec));
+            if(!flat_height_scan)
+            {
+                create_height_scan_subscription(std::get<XBot::policy::HeightScanSpec>(spec));
+            }
         }
         else if(std::holds_alternative<XBot::policy::DepthSpec>(spec))
         {

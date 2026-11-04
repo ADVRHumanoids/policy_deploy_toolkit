@@ -10,6 +10,8 @@
       <arg name="world" default="stairs_world" />
       <!-- height of the contact_i frames above the ground in stance [m] -->
       <arg name="foot_contact_height" default="0.0" />
+      <!-- flat ground without a scanner: legs height scan from the pelvis height -->
+      <arg name="flat_heightscan" default="false" />
       <!-- EE tracking markers (reference vs measured) in rviz -->
       <arg name="rviz" default="false" />
 
@@ -19,6 +21,8 @@
             <arg name="mj_heightscan" value="$(var mj_heightscan)" />
             <arg name="sim_heightscan" value="$(var sim_heightscan)" />
             <arg name="world" value="$(var world)" />
+            <arg name="flat_heightscan" value="$(var flat_heightscan)" />
+            <arg name="foot_contact_height" value="$(var foot_contact_height)" />
       </include>
 
       <node pkg="policy_deploy_toolkit"

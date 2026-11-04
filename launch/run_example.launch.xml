@@ -16,6 +16,10 @@
       <arg name="scale_linear_y" default="0.0" />
       <!-- /heightscan from the xbot2_py_mujoco terrain scanner: column-major organized cloud in frame pelvis -->
       <arg name="mj_heightscan" default="false" />
+      <!-- flat ground without a scanner: height scan filled from the pelvis height (legs FK) -->
+      <arg name="flat_heightscan" default="false" />
+      <!-- height of the contact_i frames above the ground in stance [m] -->
+      <arg name="foot_contact_height" default="0.0" />
 
       <node pkg="policy_deploy_toolkit"
             exec="deploy_policy_node"
@@ -27,6 +31,8 @@
             <param name="allow_missing_robot_joints" value="$(var allow_missing_robot_joints)"/>
             <param name="joint_velocity_limit_scale" value="$(var joint_velocity_limit_scale)"/>
             <param name="height_scan_column_major" value="$(var mj_heightscan)"/>
+            <param name="flat_heightscan" value="$(var flat_heightscan)"/>
+            <param name="foot_contact_height" value="$(var foot_contact_height)"/>
             <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/heightscan"/>
             <!-- depth policies: sensor name comes from the isaac scene (front_camera),
                  while the gz sensor publishes under its own name (zed_front_down) -->
