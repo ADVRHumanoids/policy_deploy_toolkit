@@ -19,7 +19,11 @@ std::unique_ptr<ActionTerm> XBot::policy::ActionTerm::create(std::string func,
     {
         return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
     }
-    else if(func == "isaaclab.envs.mdp.actions.joint_actions:JointVelocityAction") 
+    else if(func == "kyon_isaac.tasks.locomanipulation.ee_tracking.mdp.actions:CurrentOffsetJointPositionAction")
+    {
+        return std::make_unique<KyonIsaacCurrentOffsetJointPositionActionTerm>(robot_info, policy_info, config);
+    }
+    else if(func == "isaaclab.envs.mdp.actions.joint_actions:JointVelocityAction")
     {
         return std::make_unique<IsaacLabJointVelocityActionTerm>(robot_info, policy_info, config);
     }
@@ -38,12 +42,7 @@ ActionTerm::ActionTerm(RobotInfo robot_info, PolicyInfo policy_info, YAML::Node 
         throw std::runtime_error("Clipping not supported for ActionTerm yet");
     }
 
-    if(auto n = config["preserve_order"]; n.as<bool>())
-    {
-        throw std::runtime_error("preserve_order = true not supported for ActionTerm yet");
-    }
-
-    // resolve joint names to ids
+    // resolve joint names to ids, ordered by pattern
     auto joint_names_regex = config["joint_names"].as<std::vector<std::string>>();
 
     std::vector<std::regex> joint_name_patterns;
@@ -169,5 +168,38 @@ void IsaacLabJointVelocityActionTerm::process_impl(const Eigen::VectorXd &raw_ac
         }
         outputs.v_des(robot_id) = raw_action(i) * _scale + _policy_info.joint_default_vel[policy_id] + _offset;
         outputs.ctrl_mode(robot_id) |= 2; // velocity
+    }
+}
+
+KyonIsaacCurrentOffsetJointPositionActionTerm::KyonIsaacCurrentOffsetJointPositionActionTerm(RobotInfo robot_info,
+    PolicyInfo policy_info, YAML::Node config):
+    ActionTerm(std::move(robot_info), std::move(policy_info), config)
+{
+    _size = _joint_ids.size();
+    _sigma_a = config["sigma_a"].as<double>();
+}
+
+void KyonIsaacCurrentOffsetJointPositionActionTerm::process_impl(const Eigen::VectorXd &raw_action, const Inputs &inputs, Outputs &outputs)
+{
+    for(std::size_t i = 0; i < _joint_ids.size(); ++i)
+    {
+        int policy_id = _joint_ids[i];
+        int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "CurrentOffsetJointPositionAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
+
+        // offset from the measured position, clamped to the joint position limits
+        double q_des = inputs.q(robot_id) + std::clamp(raw_action(i) / _sigma_a, -1.0, 1.0);
+        q_des = std::clamp(q_des,
+            static_cast<double>(_robot_info.joint_pos_min(robot_id)),
+            static_cast<double>(_robot_info.joint_pos_max(robot_id)));
+
+        outputs.q_des(robot_id) = q_des;
+        outputs.k_des(robot_id) = _policy_info.stiffness[policy_id];
+        outputs.d_des(robot_id) = _policy_info.damping[policy_id];
+        outputs.ctrl_mode(robot_id) |= (1 + 8 + 16); // position + stiffness + damping
     }
 }

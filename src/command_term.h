@@ -101,6 +101,19 @@ public:
                             YAML::Node config);
 };
 
+// per arm: twist (6), goal position (3), goal quaternion wxyz (4) in the task frame; built by the node every step
+class KyonIsaacEETrajectoryCommand : public CommandTerm
+{
+
+public:
+
+    KyonIsaacEETrajectoryCommand(RobotInfo robot_info,
+                                 PolicyInfo policy_info,
+                                 std::string name,
+                                 std::string class_type,
+                                 YAML::Node config);
+};
+
 class KyonIsaacTerrainBasedVelocityCommand : public KyonIsaacVelocityCommand
 {
 public:

@@ -77,6 +77,23 @@ private:
     
 };
 
+// q_target = q_measured + clamp(a / sigma_a, -1, 1), q_measured read at the policy step
+class KyonIsaacCurrentOffsetJointPositionActionTerm : public ActionTerm
+{
+public:
+
+    KyonIsaacCurrentOffsetJointPositionActionTerm(RobotInfo robot_info,
+                                                  PolicyInfo policy_info,
+                                                  YAML::Node config);
+
+    void process_impl(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs) override;
+
+private:
+
+    double _sigma_a;
+
+};
+
 } // namespace XBot::policy
 
 #endif // __XBOT2_DEPLOY_POLICY_ACTION_TERM_H

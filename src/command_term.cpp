@@ -8,6 +8,7 @@
 #include <tuple>
 #include <utility>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -104,10 +105,54 @@ std::unique_ptr<CommandTerm> CommandTerm::create(std::string name,
             std::move(class_type),
             config);
     }
+    else if(class_type == "kyon_isaac.tasks.locomanipulation.ee_tracking.mdp.commands:ReferencePostureCommand")
+    {
+        // ponytail: EETrajectoryCommandCfg posture_lo/hi/nominal defaults, the bundle leaves them None
+        YAML::Node posture_cfg;
+        posture_cfg["roll_range"] = std::vector<double>{-0.3, 0.3};
+        posture_cfg["pitch_range"] = std::vector<double>{-0.3, 0.3};
+        posture_cfg["height_range"] = std::vector<double>{0.30, 0.65};
+        posture_cfg["nominal_height"] = 0.562;
+        return std::make_unique<KyonIsaacPostureCommand>(
+            std::move(robot_info),
+            std::move(policy_info),
+            std::move(name),
+            std::move(class_type),
+            posture_cfg);
+    }
+    else if(class_type == "kyon_isaac.tasks.locomanipulation.ee_tracking.mdp.commands:EETrajectoryCommand")
+    {
+        return std::make_unique<KyonIsaacEETrajectoryCommand>(
+            std::move(robot_info),
+            std::move(policy_info),
+            std::move(name),
+            std::move(class_type),
+            config);
+    }
     else
     {
         throw std::runtime_error("Unsupported command class: " + class_type);
     }
+}
+
+KyonIsaacEETrajectoryCommand::KyonIsaacEETrajectoryCommand(RobotInfo robot_info,
+                                                           PolicyInfo policy_info,
+                                                           std::string name,
+                                                           std::string class_type,
+                                                           YAML::Node config):
+    CommandTerm(std::move(name), std::move(class_type), std::move(robot_info), std::move(policy_info), config)
+{
+    std::vector<std::string> fields;
+    for(const auto* arm : {"left", "right"})
+    {
+        for(const auto* f : {"vx", "vy", "vz", "wx", "wy", "wz", "x", "y", "z", "qw", "qx", "qy", "qz"})
+        {
+            fields.push_back(std::format("{}_{}", arm, f));
+        }
+    }
+    const auto n = static_cast<Eigen::Index>(fields.size());
+    const double inf = std::numeric_limits<double>::infinity();
+    set_fields(fields, Eigen::VectorXd::Constant(n, -inf), Eigen::VectorXd::Constant(n, inf), Eigen::VectorXd::Zero(n));
 }
 
 CommandTerm::CommandTerm(std::string name,

@@ -314,6 +314,13 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         auto config = pair.second["cfg"];
         auto func = config["class_type"].as<std::string>();
 
+        // joints of a frozen policy are driven by another deploy node
+        if(func.ends_with(":FrozenPolicyAction"))
+        {
+            std::cout << "Action: " << name << " func: " << func << " skipped (driven by another policy)" << std::endl;
+            continue;
+        }
+
         auto action_term = ActionTerm::create(func, robot_info, policy_info, config);
         action_size += action_term->size();
         std::cout << "Action: " << name << " func: " << func << " size: " << action_term->size() << std::endl;
