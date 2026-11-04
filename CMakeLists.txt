@@ -83,7 +83,13 @@ install(TARGETS deploy_policy_node
 
 # install scripts
 install(PROGRAMS scripts/fault_keyboard.py scripts/posture_joy.py scripts/keyboard_teleop.py
+    scripts/ee_rviz.py
     DESTINATION lib/${PROJECT_NAME}
+)
+
+# install rviz configs
+install(DIRECTORY config/
+    DESTINATION share/${PROJECT_NAME}/config
 )
 
 # install examples

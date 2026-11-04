@@ -1,8 +1,8 @@
 task: Isaac-Getup-Flat-Kyon-PLAY-v0
-run: 2026-11-03_22-12-45_flat_dr_smooth_default
-checkpoint: model_9000.pt
+run: 2026-11-04_08-39-40_flat_dr_smooth_default_vellim25
+checkpoint: model_13995.pt
 experiment: kyon_getup_flat
-exported_at: '2026-11-03T23:55:55'
+exported_at: '2026-11-04T12:13:00'
 joint_stiffness:
 - 350
 - 350
@@ -242,7 +242,7 @@ actions:
       alpha: 0.8
 commands: {}
 scene:
-  num_envs: 4
+  num_envs: 32
   env_spacing: 2.5
   lazy_sensor_update: true
   replicate_physics: true
@@ -360,7 +360,7 @@ scene:
     class_type: isaaclab.terrains.terrain_importer:TerrainImporter
     collision_group: -1
     prim_path: /World/ground
-    num_envs: 4
+    num_envs: 32
     terrain_type: generator
     terrain_generator:
       class_type: isaaclab.terrains.terrain_generator:TerrainGenerator

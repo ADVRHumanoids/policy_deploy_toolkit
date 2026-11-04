@@ -10,6 +10,8 @@
       <arg name="world" default="stairs_world" />
       <!-- height of the contact_i frames above the ground in stance [m] -->
       <arg name="foot_contact_height" default="0.0" />
+      <!-- EE tracking markers (reference vs measured) in rviz -->
+      <arg name="rviz" default="false" />
 
       <include file="$(find-pkg-share policy_deploy_toolkit)/launch/run_example.launch.xml">
             <arg name="example" value="$(var legs)" />
@@ -27,4 +29,14 @@
             <param name="use_sim_time" value="$(var use_sim_time)"/>
             <param name="foot_contact_height" value="$(var foot_contact_height)"/>
       </node>
+
+      <group if="$(var rviz)">
+            <node pkg="policy_deploy_toolkit" exec="ee_rviz.py" name="ee_rviz" output="screen">
+                  <param name="use_sim_time" value="$(var use_sim_time)"/>
+            </node>
+            <node pkg="rviz2" exec="rviz2" name="rviz2"
+                  args="-d $(find-pkg-share policy_deploy_toolkit)/config/ee_tracking.rviz">
+                  <param name="use_sim_time" value="$(var use_sim_time)"/>
+            </node>
+      </group>
 </launch>

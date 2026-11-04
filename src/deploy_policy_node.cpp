@@ -19,6 +19,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <tf2_ros/transform_broadcaster.h>
 #include <std_msgs/msg/string.hpp>
 #include <xbot2_interface/robotinterface2.h>
 #include <xbot2_interface/ros2/config_from_param.hpp>
@@ -152,6 +154,9 @@ private:
         _foot_frames = declare_parameter<std::vector<std::string>>(
             "foot_frames", {"contact_1", "contact_2", "contact_3", "contact_4"});
         _foot_contact_height = declare_parameter<double>("foot_contact_height", 0.0);
+        // task frame broadcast as TF <ee_task_parent_frame> -> ee_task, for visualization
+        _ee_task_parent_frame = declare_parameter<std::string>("ee_task_parent_frame", "base_link");
+        _tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
         if(_ee_frames.size() != 2)
         {
             throw std::runtime_error("Parameter 'ee_frames' must list the left and right EE frames");
@@ -229,6 +234,23 @@ private:
         msg.data.push_back(h);
         _inputs.command[_ee_command_name] = command;
         _ee_measured_pub->publish(msg);
+
+        // task frame in the base frame: yaw-only axes, origin on the ground under the pelvis
+        const Eigen::Matrix3d b_R_t = t_R_b.transpose();
+        const Eigen::Vector3d b_p_t = b_R_t * Eigen::Vector3d(0.0, 0.0, -h);
+        const Eigen::Quaterniond b_q_t(b_R_t);
+        geometry_msgs::msg::TransformStamped tf;
+        tf.header.stamp = now();
+        tf.header.frame_id = _ee_task_parent_frame;
+        tf.child_frame_id = "ee_task";
+        tf.transform.translation.x = b_p_t.x();
+        tf.transform.translation.y = b_p_t.y();
+        tf.transform.translation.z = b_p_t.z();
+        tf.transform.rotation.w = b_q_t.w();
+        tf.transform.rotation.x = b_q_t.x();
+        tf.transform.rotation.y = b_q_t.y();
+        tf.transform.rotation.z = b_q_t.z();
+        _tf_broadcaster->sendTransform(tf);
 
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "EE: pelvis height %.3f m, left (%.3f %.3f %.3f), right (%.3f %.3f %.3f)",
                              h, meas[0].pos.x(), meas[0].pos.y(), meas[0].pos.z(), meas[1].pos.x(), meas[1].pos.y(), meas[1].pos.z());
@@ -433,6 +455,8 @@ private:
     std::vector<std::string> _ee_frames;
     std::vector<std::string> _foot_frames;
     double _foot_contact_height{0.0};
+    std::string _ee_task_parent_frame;
+    std::unique_ptr<tf2_ros::TransformBroadcaster> _tf_broadcaster;
     std::array<XBot::policy::EePose, 2> _ee_target;
     std::array<XBot::policy::EePose, 2> _ee_goal;
     bool _ee_has_reference{false};
