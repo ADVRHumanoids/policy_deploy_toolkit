@@ -1,0 +1,33 @@
+<launch>
+      <!-- LOCO while upright, GETUP when fallen (switch_policy_node), legs-only robot -->
+      <arg name="loco" default="kyon_full_locoposture_rough" />
+      <arg name="getup" default="kyon_getup_flat" />
+      <arg name="loco_dir" default="$(find-pkg-share policy_deploy_toolkit)/examples/$(var loco)" />
+      <arg name="getup_dir" default="$(find-pkg-share policy_deploy_toolkit)/examples/$(var getup)" />
+      <arg name="use_sim_time" default="true" />
+      <!-- flat ground without a scanner: LOCO height scan from the pelvis height -->
+      <arg name="flat_heightscan" default="true" />
+      <arg name="foot_contact_height" default="0.0" />
+      <!-- |roll| or |pitch| [rad] above fall_tilt: GETUP; below up_tilt for up_hold_s [s]: LOCO -->
+      <arg name="fall_tilt" default="0.6" />
+      <arg name="up_tilt" default="0.3" />
+      <arg name="up_hold_s" default="0.5" />
+      <!-- fraction of the URDF joint velocity limit the reference may move at -->
+      <arg name="joint_velocity_limit_scale" default="1.0" />
+
+      <node pkg="policy_deploy_toolkit"
+            exec="switch_policy_node"
+            name="policy_deploy_node"
+            output="screen"
+            args="$(var loco_dir)/policy.onnx $(var loco_dir)/deploy_metadata.yaml $(var getup_dir)/policy.onnx $(var getup_dir)/deploy_metadata.yaml">
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="allow_missing_robot_joints" value="true"/>
+            <param name="flat_heightscan" value="$(var flat_heightscan)"/>
+            <param name="foot_contact_height" value="$(var foot_contact_height)"/>
+            <param name="fall_tilt" value="$(var fall_tilt)"/>
+            <param name="up_tilt" value="$(var up_tilt)"/>
+            <param name="up_hold_s" value="$(var up_hold_s)"/>
+            <param name="joint_velocity_limit_scale" value="$(var joint_velocity_limit_scale)"/>
+            <remap from="/policy_deploy_node/sensors/height_scanner/points" to="/heightscan"/>
+      </node>
+</launch>

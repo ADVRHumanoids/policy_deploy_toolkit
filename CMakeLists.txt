@@ -76,8 +76,35 @@ if(ENABLE_COMMAND_TIMESTAMPS)
     )
 endif()
 
+# loco/getup switching node
+add_executable(switch_policy_node
+    src/switch_policy_node.cpp
+    src/ros_command_receiver.cpp
+    src/ros_sensor_receiver.cpp
+    )
+
+target_link_libraries(switch_policy_node
+    PRIVATE
+    policy_deploy_toolkit
+    xbot2_diagnostics::xbot2_diagnostics_ros
+    xbot2::xbot2
+    rclcpp::rclcpp
+    tf2::tf2
+    tf2_ros::tf2_ros
+    std_msgs::std_msgs__rosidl_typesupport_cpp
+    geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
+    sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
+)
+
+if(ENABLE_COMMAND_TIMESTAMPS)
+    target_compile_definitions(switch_policy_node
+        PRIVATE
+        -DENABLE_COMMAND_TIMESTAMPS
+    )
+endif()
+
 # install node
-install(TARGETS deploy_policy_node
+install(TARGETS deploy_policy_node switch_policy_node
     DESTINATION lib/${PROJECT_NAME}
 )
 
