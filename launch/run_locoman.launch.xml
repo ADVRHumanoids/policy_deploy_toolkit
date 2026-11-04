@@ -1,0 +1,30 @@
+<launch>
+      <!-- legs: block 1 posture locomotion (policy_deploy_node); arms: block 2 EE tracking (arms_policy_node) -->
+      <arg name="legs" default="kyon_full_locoposture_rough" />
+      <arg name="arms" default="kyon_eetracker" />
+      <arg name="arms_dir"
+            default="$(find-pkg-share policy_deploy_toolkit)/examples/$(var arms)" />
+      <arg name="use_sim_time" default="true" />
+      <arg name="mj_heightscan" default="false" />
+      <arg name="sim_heightscan" default="false" />
+      <arg name="world" default="stairs_world" />
+      <!-- height of the contact_i frames above the ground in stance [m] -->
+      <arg name="foot_contact_height" default="0.0" />
+
+      <include file="$(find-pkg-share policy_deploy_toolkit)/launch/run_example.launch.xml">
+            <arg name="example" value="$(var legs)" />
+            <arg name="use_sim_time" value="$(var use_sim_time)" />
+            <arg name="mj_heightscan" value="$(var mj_heightscan)" />
+            <arg name="sim_heightscan" value="$(var sim_heightscan)" />
+            <arg name="world" value="$(var world)" />
+      </include>
+
+      <node pkg="policy_deploy_toolkit"
+            exec="deploy_policy_node"
+            name="arms_policy_node"
+            output="screen"
+            args="$(var arms_dir)/policy.onnx $(var arms_dir)/deploy_metadata.yaml">
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="foot_contact_height" value="$(var foot_contact_height)"/>
+      </node>
+</launch>
