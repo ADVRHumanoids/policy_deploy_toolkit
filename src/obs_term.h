@@ -109,6 +109,17 @@ public:
     void process_impl(const Inputs& inputs, Eigen::VectorXd& output) override;
 };
 
+// last sent position target minus measured position; the default pose is the target at step 0
+class IsaacLabJointPosTrackingErrorObsTerm : public ObsTerm
+{
+public:
+
+    IsaacLabJointPosTrackingErrorObsTerm(RobotInfo robot_info, PolicyInfo policy_info,
+                                         YAML::Node config);
+
+    void process_impl(const Inputs& inputs, Eigen::VectorXd& output) override;
+};
+
 class KyonIsaacJointVelRelObsTerm : public ObsTerm
 {
 public:

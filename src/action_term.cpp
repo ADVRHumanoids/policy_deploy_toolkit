@@ -15,7 +15,8 @@ std::unique_ptr<ActionTerm> XBot::policy::ActionTerm::create(std::string func,
     {
         return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
     } 
-    if(func == "kyon_isaac.tasks.locomotion.velocity.mdp.actions:LimitedJointPositionAction")
+    if(func == "kyon_isaac.tasks.locomotion.velocity.mdp.actions:LimitedJointPositionAction" ||
+       func == "isaaclab_tasks.manager_based.locomotion.common.actions:EMAJointPositionAction")
     {
         return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
     }
@@ -110,10 +111,16 @@ IsaacLabJointPositionActionTerm::IsaacLabJointPositionActionTerm(RobotInfo robot
     _size = _joint_ids.size();
     _offset = config["offset"].as<double>(0.0);
     _scale = config["scale"].as<double>(1.0);
+    _alpha = config["alpha"].as<double>(1.0);
+    _prev_raw_action = Eigen::VectorXd::Zero(_size);
 }
 
-void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &raw_action, const Inputs &inputs, Outputs &outputs)
+void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &input_action, const Inputs &inputs, Outputs &outputs)
 {
+    // EMA on the raw action: a_f = alpha * a + (1 - alpha) * a_prev
+    const Eigen::VectorXd raw_action = _alpha * input_action + (1.0 - _alpha) * _prev_raw_action;
+    _prev_raw_action = input_action;
+
     for(std::size_t i = 0; i < _joint_ids.size(); ++i)
     {
         int policy_id = _joint_ids[i];

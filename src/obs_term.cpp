@@ -1,6 +1,7 @@
 #include "obs_term.h"
 
 #include <algorithm>
+#include <numeric>
 #include <stdexcept>
 #include <utility>
 #include <iostream>
@@ -28,6 +29,10 @@ std::unique_ptr<ObsTerm> ObsTerm::create(std::string func, RobotInfo robot_info,
     else if(func == "kyon_isaac.tasks.locomotion.velocity.mdp.observations:joint_pos_error")
     {
         return std::make_unique<KyonIsaacJointPosErrorObsTerm>(robot_info, policy_info, config);
+    }
+    else if(func == "isaaclab_tasks.manager_based.locomotion.position.mdp.observations:joint_pos_tracking_error")
+    {
+        return std::make_unique<IsaacLabJointPosTrackingErrorObsTerm>(robot_info, policy_info, config);
     }
     else if(func == "isaaclab.envs.mdp.observations:joint_vel_rel")
     {
@@ -93,7 +98,9 @@ ObsTerm::ObsTerm(RobotInfo robot_info, PolicyInfo policy_info, YAML::Node config
     }
     catch(...)
     {
-
+        // no asset_cfg: all policy joints, in policy order
+        _joint_ids.resize(_policy_info.joint_names.size());
+        std::iota(_joint_ids.begin(), _joint_ids.end(), 0);
     }
 }
 
@@ -220,6 +227,30 @@ void KyonIsaacJointPosErrorObsTerm::process_impl(const Inputs& inputs, Eigen::Ve
                 "JointPosError observation references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
         }
         output(i) = inputs.q(robot_id) - inputs.q_ref(robot_id);
+    }
+}
+
+IsaacLabJointPosTrackingErrorObsTerm::IsaacLabJointPosTrackingErrorObsTerm(RobotInfo robot_info,
+                                                                           PolicyInfo policy_info,
+                                                                           YAML::Node config) : ObsTerm(robot_info, policy_info, config)
+{
+    _size = _joint_ids.size();
+}
+
+void IsaacLabJointPosTrackingErrorObsTerm::process_impl(const Inputs& inputs, Eigen::VectorXd& output)
+{
+    output.resize(_joint_ids.size());
+    for(std::size_t i = 0; i < _joint_ids.size(); ++i)
+    {
+        int policy_id = _joint_ids[i];
+        int robot_id = _policy_info.joint_id_policy_to_robot[policy_id];
+        if(robot_id < 0)
+        {
+            throw std::runtime_error(
+                "JointPosTrackingError observation references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
+        }
+        const double target = inputs.step == 0 ? _policy_info.joint_default_pos[policy_id] : inputs.q_ref(robot_id);
+        output(i) = target - inputs.q(robot_id);
     }
 }
 

@@ -57,6 +57,8 @@ private:
 
     double _offset;
     double _scale;
+    double _alpha;
+    Eigen::VectorXd _prev_raw_action;
 
 };
 
