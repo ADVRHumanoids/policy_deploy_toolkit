@@ -250,7 +250,6 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         std::cout << "Observation: " << name << " func: " << func << " size: " << obs_term->size() << std::endl;
 
         _obs_terms.push_back(std::move(obs_term));
-        _obs_term_names.push_back(name);  // TEMP DEBUG
         obs_size += _obs_terms.back()->size();
 
     }
@@ -781,27 +780,6 @@ void OnnxPolicy::_fillInputBuffers(const Inputs& inputs, Outputs& outputs)
 
     outputs.raw_observation = Eigen::Map<const Eigen::VectorXf>(
         tensor.buffer.data(), static_cast<Eigen::Index>(tensor.buffer.size()));
-    auto policy_input = Eigen::VectorXf::Map(tensor.buffer.data(), tensor.buffer.size());
-
-    // --- TEMP DEBUG: every observation term with its name, throttled to ~1 Hz ---
-    static int _dbg = 0;
-    if(_dbg++ % 50 == 0)
-    {
-        std::cout << "[OBS] --------------------------------------------------" << std::endl;
-        int off = 0;
-        for(std::size_t t = 0; t < _obs_terms.size(); ++t)
-        {
-            const int n = _obs_terms[t]->size();
-            std::cout << "[OBS] " << _obs_term_names[t] << " (" << n << "): ";
-            for(int k = 0; k < n; ++k)
-            {
-                std::cout << policy_input(off + k) << " ";
-            }
-            std::cout << std::endl;
-            off += n;
-        }
-    }
-    // --- END TEMP DEBUG ---
 }
 
 void OnnxPolicy::_fillOutputs(const Inputs& inputs, Outputs& outputs)

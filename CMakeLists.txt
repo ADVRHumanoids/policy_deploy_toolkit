@@ -82,7 +82,7 @@ install(TARGETS deploy_policy_node
 )
 
 # install scripts
-install(PROGRAMS scripts/fault_keyboard.py
+install(PROGRAMS scripts/fault_keyboard.py scripts/posture_joy.py scripts/keyboard_teleop.py
     DESTINATION lib/${PROJECT_NAME}
 )
 

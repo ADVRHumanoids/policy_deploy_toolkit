@@ -88,6 +88,19 @@ public:
 private:
 };
 
+// (roll [rad], pitch [rad], height [m]) base posture target; defaults to the nominal posture
+class KyonIsaacPostureCommand : public CommandTerm
+{
+
+public:
+
+    KyonIsaacPostureCommand(RobotInfo robot_info,
+                            PolicyInfo policy_info,
+                            std::string name,
+                            std::string class_type,
+                            YAML::Node config);
+};
+
 class KyonIsaacTerrainBasedVelocityCommand : public KyonIsaacVelocityCommand
 {
 public:

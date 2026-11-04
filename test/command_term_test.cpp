@@ -75,5 +75,26 @@ int main()
     assert(!command->sanitize(inputs, raw, sanitized, &reason));
     assert(!reason.empty());
 
+    auto posture = XBot::policy::CommandTerm::create(
+        "base_posture",
+        "kyon_isaac.tasks.locomotion.posture.mdp.posture:PostureCommand",
+        XBot::policy::RobotInfo{},
+        XBot::policy::PolicyInfo{},
+        YAML::Load(R"(
+roll_range: !!python/tuple [-0.3, 0.3]
+pitch_range: !!python/tuple [-0.2, 0.2]
+height_range: !!python/tuple [0.3, 0.65]
+nominal_height: 0.562
+)"));
+
+    assert((posture->spec().field_names == std::vector<std::string>{"roll", "pitch", "height"}));
+    assert(approx(posture->spec().default_value(2), 0.562));
+
+    raw << 1.0, -1.0, 0.1;
+    assert(posture->sanitize(inputs, raw, sanitized, &reason));
+    assert(approx(sanitized(0), 0.3));
+    assert(approx(sanitized(1), -0.2));
+    assert(approx(sanitized(2), 0.3));
+
     return 0;
 }

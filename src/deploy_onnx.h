@@ -99,9 +99,6 @@ std::vector<std::pair<std::size_t, std::size_t>> _recurrent_state_pairs;
 std::vector<std::string> _recurrent_state_names;
 
 std::vector<std::unique_ptr<ObsTerm>> _obs_terms;
-// --- TEMP DEBUG: term names, parallel to _obs_terms ---
-std::vector<std::string> _obs_term_names;
-// --- END TEMP DEBUG ---
 std::vector<std::unique_ptr<ActionTerm>> _action_terms;
 std::vector<std::unique_ptr<CommandTerm>> _command_terms;
 std::vector<CommandSpec> _command_specs;

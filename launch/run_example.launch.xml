@@ -12,6 +12,8 @@
       <arg name="actor_obs_group" default="policy" />
       <arg name="allow_missing_robot_joints" default="false" />
       <arg name="joint_velocity_limit_scale" default="1.0" />
+      <!-- max lateral joystick command [m/s]; 0 for depth students trained with lin_vel_y = 0 -->
+      <arg name="scale_linear_y" default="0.0" />
       <!-- /heightscan from the xbot2_py_mujoco terrain scanner: column-major organized cloud in frame pelvis -->
       <arg name="mj_heightscan" default="false" />
 
@@ -56,10 +58,14 @@
             <!-- 0.8 m/s: the eval campaign sampled forward commands in [0.8, 1.0], and the
                  policy trained on lin_vel_x within +/-1.0 -->
             <param name="scale_linear.x" value="0.8" />
-            <!-- 0: the depth student trained with lin_vel_y = (0, 0) and a forward-only camera,
-                 so any lateral command is out of distribution -->
-            <param name="scale_linear.y" value="0.0" />
+            <param name="scale_linear.y" value="$(var scale_linear_y)" />
             <param name="scale_angular.yaw" value="1.5" />
       </node>
+
+      <!-- hold R1/L1 (height +/-), B/X (roll +/-), Y/A (pitch +/-); button_reset param resets to nominal (posture policies only) -->
+      <node pkg="policy_deploy_toolkit"
+            exec="posture_joy.py"
+            output="screen"
+            if="$(var enable_joy)" />
 
 </launch>

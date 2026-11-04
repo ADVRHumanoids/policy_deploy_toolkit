@@ -5,6 +5,7 @@
 #include <format>
 #include <set>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 #include <iostream>
 
@@ -88,6 +89,15 @@ std::unique_ptr<CommandTerm> CommandTerm::create(std::string name,
     else if(class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:TerrainBasedVelocityCommandPLAY")
     {
         return std::make_unique<KyonIsaacTerrainBasedVelocityCommand>(
+            std::move(robot_info),
+            std::move(policy_info),
+            std::move(name),
+            std::move(class_type),
+            config);
+    }
+    else if(class_type == "kyon_isaac.tasks.locomotion.posture.mdp.posture:PostureCommand")
+    {
+        return std::make_unique<KyonIsaacPostureCommand>(
             std::move(robot_info),
             std::move(policy_info),
             std::move(name),
@@ -232,6 +242,27 @@ KyonIsaacVelocityCommand::KyonIsaacVelocityCommand(RobotInfo robot_info,
     }
 
     set_fields(fields, std::move(min), std::move(max), Eigen::VectorXd::Zero(fields.size()));
+}
+
+KyonIsaacPostureCommand::KyonIsaacPostureCommand(RobotInfo robot_info,
+                                                 PolicyInfo policy_info,
+                                                 std::string name,
+                                                 std::string class_type,
+                                                 YAML::Node config):
+    CommandTerm(std::move(name), std::move(class_type), std::move(robot_info), std::move(policy_info), config)
+{
+    const std::vector<std::string> fields{"roll", "pitch", "height"};
+    Eigen::VectorXd min(3), max(3), nominal(3);
+    for(int i = 0; i < 3; ++i)
+    {
+        std::tie(min(i), max(i)) = parse_range(config, _spec.name, fields[i] + "_range");
+    }
+    nominal << 0.0, 0.0, config["nominal_height"].as<double>();
+
+    std::cout << std::format("Command '{}': min={} {} {}, max={} {} {}, nominal height={}\n",
+        _spec.name, min(0), min(1), min(2), max(0), max(1), max(2), nominal(2));
+
+    set_fields(fields, std::move(min), std::move(max), std::move(nominal));
 }
 
 KyonIsaacTerrainBasedVelocityCommand::KyonIsaacTerrainBasedVelocityCommand(RobotInfo robot_info,
