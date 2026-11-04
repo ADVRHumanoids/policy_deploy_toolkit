@@ -18,6 +18,12 @@ RosCommandReceiver::RosCommandReceiver(rclcpp::Node& node,
 {
     for(const auto& spec : policy.command_specs())
     {
+        // the EE command needs the measured EE pose every step: the node builds it
+        if(spec.class_type.ends_with(":EETrajectoryCommand"))
+        {
+            continue;
+        }
+
         CommandState state;
         state.spec = spec;
         state.value = _defaults.at(spec.name);

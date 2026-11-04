@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -12,10 +13,12 @@
 #include <vector>
 
 #include "deploy_onnx.h"
+#include "ee_command.h"
 #include "ros_command_receiver.h"
 #include "ros_sensor_receiver.h"
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <xbot2_interface/robotinterface2.h>
 #include <xbot2_interface/ros2/config_from_param.hpp>
@@ -100,6 +103,15 @@ public:
             _policy->policyInfo().action_size,
             robot_info.joint_names.size());
 
+        _base_R_imu = robot_info.base_T_imu.linear();
+        for(const auto& spec : _policy->command_specs())
+        {
+            if(spec.class_type.ends_with(":EETrajectoryCommand"))
+            {
+                init_ee_command(spec.name);
+            }
+        }
+
         _command_receiver = std::make_unique<RosCommandReceiver>(*this, *_policy, _command_timeout_s);
         _sensor_receiver = std::make_unique<RosSensorReceiver>(*this, *_policy, _sensor_timeout_s, robot_info.base_T_imu.linear());
         _observation_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("policy/observations", 10);
@@ -132,6 +144,96 @@ public:
     }
 
 private:
+    // reference: per arm (left, right) target pos (3), target quat wxyz (4), goal pos (3), goal quat wxyz (4)
+    void init_ee_command(const std::string& name)
+    {
+        _ee_command_name = name;
+        _ee_frames = declare_parameter<std::vector<std::string>>("ee_frames", {"wrist_yaw_1_link", "wrist_yaw_2_link"});
+        _foot_frames = declare_parameter<std::vector<std::string>>(
+            "foot_frames", {"contact_1", "contact_2", "contact_3", "contact_4"});
+        _foot_contact_height = declare_parameter<double>("foot_contact_height", 0.0);
+        if(_ee_frames.size() != 2)
+        {
+            throw std::runtime_error("Parameter 'ee_frames' must list the left and right EE frames");
+        }
+
+        _ee_reference_sub = create_subscription<std_msgs::msg::Float64MultiArray>(
+            "~/commands/" + name + "/reference", rclcpp::QoS(1).best_effort(),
+            [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr msg) {
+                if(msg->data.size() != 28)
+                {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                                         "Ignoring EE reference with %zu values (expected 28)", msg->data.size());
+                    return;
+                }
+                const auto pose = [&msg](std::size_t i) {
+                    const double* d = msg->data.data() + i;
+                    XBot::policy::EePose p;
+                    p.pos << d[0], d[1], d[2];
+                    p.quat = Eigen::Quaterniond(d[3], d[4], d[5], d[6]).normalized();
+                    return p;
+                };
+                for(std::size_t arm = 0; arm < 2; ++arm)
+                {
+                    _ee_target[arm] = pose(14 * arm);
+                    _ee_goal[arm] = pose(14 * arm + 7);
+                }
+                _ee_has_reference = true;
+            });
+        _ee_measured_pub = create_publisher<std_msgs::msg::Float64MultiArray>("~/ee_measured", 10);
+
+        RCLCPP_INFO(get_logger(), "EE command '%s': reference on '%s', EE frames %s/%s, foot contact height %.3f m",
+                    name.c_str(), _ee_reference_sub->get_topic_name(),
+                    _ee_frames[0].c_str(), _ee_frames[1].c_str(), _foot_contact_height);
+    }
+
+    // measured EE poses in the task frame, then the 26-dim command; publishes [left pose, right pose, h]
+    void update_ee_command()
+    {
+        const Eigen::Matrix3d t_R_b = XBot::policy::remove_yaw(_inputs.w_R_imu.toRotationMatrix() * _base_R_imu.transpose());
+
+        std::vector<Eigen::Vector3d> feet;
+        Eigen::Affine3d b_T_x;
+        for(const auto& f : _foot_frames)
+        {
+            _robot->getPose(f, "base_link", b_T_x);
+            feet.push_back(b_T_x.translation());
+        }
+        const double h = XBot::policy::pelvis_height(t_R_b, feet, _foot_contact_height);
+
+        std::array<XBot::policy::EePose, 2> meas;
+        for(std::size_t arm = 0; arm < 2; ++arm)
+        {
+            _robot->getPose(_ee_frames[arm], "base_link", b_T_x);
+            meas[arm] = XBot::policy::to_task_frame(t_R_b, h, b_T_x);
+        }
+
+        // without a reference, hold the EE poses measured at the first step
+        if(!_ee_has_reference)
+        {
+            _ee_target = meas;
+            _ee_goal = meas;
+            _ee_has_reference = true;
+        }
+
+        Eigen::VectorXd command(26);
+        std_msgs::msg::Float64MultiArray msg;
+        for(std::size_t arm = 0; arm < 2; ++arm)
+        {
+            command.segment<13>(13 * arm) = XBot::policy::ee_command(
+                meas[arm], _ee_target[arm], _ee_goal[arm], _policy->policyInfo().control_dt);
+            const auto& q = meas[arm].quat;
+            msg.data.insert(msg.data.end(), {meas[arm].pos.x(), meas[arm].pos.y(), meas[arm].pos.z(),
+                                             q.w(), q.x(), q.y(), q.z()});
+        }
+        msg.data.push_back(h);
+        _inputs.command[_ee_command_name] = command;
+        _ee_measured_pub->publish(msg);
+
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "EE: pelvis height %.3f m, left (%.3f %.3f %.3f), right (%.3f %.3f %.3f)",
+                             h, meas[0].pos.x(), meas[0].pos.y(), meas[0].pos.z(), meas[1].pos.x(), meas[1].pos.y(), meas[1].pos.z());
+    }
+
     void fault_callback(const std::string& data)
     {
         _faults.clear();
@@ -233,6 +335,11 @@ private:
         _inputs.imu_omega = _imu->getAngularVelocity();
         _inputs.imu_acc = _imu->getLinearAcceleration();
 
+        if(!_ee_command_name.empty())
+        {
+            update_ee_command();
+        }
+
         // initialize outputs as needed
         if(_inputs.step == 0)
         {
@@ -321,6 +428,16 @@ private:
     std::vector<std::pair<int, double>> _faults; // (v index, kept gain fraction)
     bool _fault_changed{false};
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _fault_sub;
+    Eigen::Matrix3d _base_R_imu{Eigen::Matrix3d::Identity()};
+    std::string _ee_command_name;
+    std::vector<std::string> _ee_frames;
+    std::vector<std::string> _foot_frames;
+    double _foot_contact_height{0.0};
+    std::array<XBot::policy::EePose, 2> _ee_target;
+    std::array<XBot::policy::EePose, 2> _ee_goal;
+    bool _ee_has_reference{false};
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr _ee_reference_sub;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr _ee_measured_pub;
     rclcpp::TimerBase::SharedPtr _timer;
 };
 

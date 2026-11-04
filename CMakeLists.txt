@@ -110,6 +110,12 @@ if(BUILD_TESTING)
 
     add_test(NAME command_term_test COMMAND command_term_test)
 
+    add_executable(ee_command_test
+        test/ee_command_test.cpp
+    )
+    target_link_libraries(ee_command_test PRIVATE policy_deploy_toolkit)
+    add_test(NAME ee_command_test COMMAND ee_command_test)
+
     add_executable(ros_sensor_receiver_test
         test/ros_sensor_receiver_test.cpp
         src/ros_sensor_receiver.cpp
