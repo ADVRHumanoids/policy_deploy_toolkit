@@ -43,6 +43,9 @@ RosSensorReceiver::RosSensorReceiver(rclcpp::Node& node,
                                  _depth_downsample + "'");
     }
 
+    // read organized height clouds column by column (rows = forward x, columns = lateral y)
+    _height_scan_column_major = _node.declare_parameter<bool>("height_scan_column_major", false);
+
     for(const auto& spec : policy.sensor_specs())
     {
         if(std::holds_alternative<XBot::policy::HeightScanSpec>(spec))
@@ -498,10 +501,14 @@ void RosSensorReceiver::store_height_scan(const std::string& name, const sensor_
     }
     PendingScan pending{{}, msg.header.frame_id, now};
     pending.points.reserve(point_count);
-    for(std::size_t row = 0; row < msg.height; ++row)
+    const std::size_t outer_count = _height_scan_column_major ? msg.width : msg.height;
+    const std::size_t inner_count = _height_scan_column_major ? msg.height : msg.width;
+    for(std::size_t outer = 0; outer < outer_count; ++outer)
     {
-        for(std::size_t col = 0; col < msg.width; ++col)
+        for(std::size_t inner = 0; inner < inner_count; ++inner)
         {
+            const auto row = _height_scan_column_major ? inner : outer;
+            const auto col = _height_scan_column_major ? outer : inner;
             const auto offset = row * msg.row_step + col * msg.point_step;
             Eigen::Vector3d point;
             for(int axis = 0; axis < 3; ++axis)

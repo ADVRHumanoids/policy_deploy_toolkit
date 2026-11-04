@@ -82,6 +82,7 @@ private:
     std::mutex _mutex;
     std::map<std::string, HeightScanState> _height_scan_states;
     std::string _depth_downsample{"center"};
+    bool _height_scan_column_major{false};
     rclcpp::CallbackGroup::SharedPtr _depth_group;
     std::map<std::string, DepthState> _depth_states;
     std::vector<rclcpp::SubscriptionBase::SharedPtr> _subscriptions;

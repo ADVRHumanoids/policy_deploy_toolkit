@@ -246,6 +246,25 @@ struct RosSensorReceiverTest {
         check(std::abs(read(immediate)(0) + 2) < 1e-12, "missing TF replaced last valid scan");
     }
 
+    static void column_major(rclcpp::Node& node)
+    {
+        // 2 rows x 3 columns, z = row-major index
+        std::vector<Eigen::Vector3d> points;
+        for(int i = 0; i < 6; ++i) points.push_back({0, 0, static_cast<double>(i)});
+        for(bool column_major : {false, true})
+        {
+            Receiver receiver(node, 0.5, Eigen::Matrix3d::Identity());
+            receiver._height_scan_column_major = column_major;
+            add_scan(receiver, 6);
+            receiver.update_imu(Eigen::Quaterniond::Identity());
+            receiver.store_height_scan("scan", cloud(points, 1, "base_link", 3));
+            Eigen::VectorXd expected(6);
+            if(column_major) expected << 0, 3, 1, 4, 2, 5;
+            else expected << 0, 1, 2, 3, 4, 5;
+            check((read(receiver) - expected).norm() < 1e-12, "organized cloud order mismatch");
+        }
+    }
+
     static void listener(rclcpp::Node& node)
     {
         Receiver receiver(node, 2.0, Eigen::Matrix3d::Identity());
@@ -285,6 +304,7 @@ struct RosSensorReceiverTest {
         transforms(node);
         latest_imu(node);
         pending_and_validation(node);
+        column_major(node);
         listener(node);
     }
 };
