@@ -76,6 +76,7 @@ std::unique_ptr<CommandTerm> CommandTerm::create(std::string name,
                                                  YAML::Node config)
 {
     if(class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:VelocityCommand" ||
+       class_type == "kyon_isaac.tasks.locomotion.velocity.mdp.commands:PureYawUniformVelocityCommand"||
        class_type == "isaaclab.envs.mdp.commands.velocity_command:UniformVelocityCommand")
     {
         return std::make_unique<KyonIsaacVelocityCommand>(
