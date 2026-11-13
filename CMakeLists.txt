@@ -17,6 +17,7 @@ find_package(xbot2_diagnostics QUIET)
 
 # options
 option(ENABLE_COMMAND_TIMESTAMPS "Enable timestamps for command messages (requires xbot2_interface 1.2.0+)" OFF)
+option(BUILD_PYTHON_BINDINGS "Build and install Python bindings via pybind11" OFF)
 
 # library
 add_library(policy_deploy_toolkit STATIC
@@ -37,6 +38,33 @@ target_link_libraries(policy_deploy_toolkit
     onnxruntime::onnxruntime
     yaml-cpp::yaml-cpp
 )
+
+if(BUILD_PYTHON_BINDINGS)
+    find_package(ament_cmake_python REQUIRED)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
+    find_package(pybind11 CONFIG REQUIRED)
+
+    set_target_properties(policy_deploy_toolkit PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    pybind11_add_module(policy_deploy_toolkit_python src/python_bindings.cpp)
+    target_link_libraries(policy_deploy_toolkit_python PRIVATE policy_deploy_toolkit)
+    set_target_properties(policy_deploy_toolkit_python PROPERTIES
+        OUTPUT_NAME _bindings
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/python/policy_deploy_toolkit"
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+    )
+
+    foreach(module __init__ simulate rollout_actions)
+        configure_file("python/policy_deploy_toolkit/${module}.py"
+            "python/policy_deploy_toolkit/${module}.py" COPYONLY)
+    endforeach()
+
+    ament_get_python_install_dir(PYTHON_INSTALL_DIR)
+    ament_python_install_package(${PROJECT_NAME}
+        PACKAGE_DIR "python/policy_deploy_toolkit")
+    install(TARGETS policy_deploy_toolkit_python
+        LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}"
+    )
+endif()
 
 # node
 add_executable(deploy_policy_node
@@ -95,6 +123,20 @@ install(DIRECTORY launch/
 include(CTest)
 
 if(BUILD_TESTING)
+    if(BUILD_PYTHON_BINDINGS)
+        add_test(NAME python_bindings_test
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/python_bindings_test.py"
+                "${CMAKE_CURRENT_BINARY_DIR}/python" "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+        add_test(NAME mujoco_policy_test
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/mujoco_policy_test.py"
+                "${CMAKE_CURRENT_BINARY_DIR}/python" "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+        add_test(NAME rollout_actions_test
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/rollout_actions_test.py"
+                "${CMAKE_CURRENT_BINARY_DIR}/python"
+        )
+    endif()
     add_executable(command_filter_test test/command_filter_test.cpp)
     target_include_directories(command_filter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(command_filter_test PRIVATE Eigen3::Eigen)

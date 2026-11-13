@@ -37,7 +37,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     auto md = YAML::LoadFile(_model_metadata_path);
 
     // policy info to fill
-    PolicyInfo policy_info;
+    PolicyInfo policy_info{};
     policy_info.joint_default_pos = md["default_joint_pos"].as<std::vector<double>>();
     if(md["default_joint_vel"])
     {
@@ -139,11 +139,6 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         }
 
         auto func = n_func.as<std::string>();
-        auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
-        std::cout << "Observation: " << name << " func: " << func 
-                  << " size: " << obs_term->size() 
-                  << " indices: " << obs_size << ":" << obs_size + obs_term->size()
-                  << std::endl;
         
         // Check if sensor is required for the observation term
         auto params = config["params"];
@@ -180,6 +175,12 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
             }
         }
 
+        // Sensor dimensions must be known before constructing observation terms.
+        auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
+        std::cout << "Observation: " << name << " func: " << func
+                  << " size: " << obs_term->size()
+                  << " indices: " << obs_size << ":" << obs_size + obs_term->size()
+                  << std::endl;
         _obs_terms.push_back(std::move(obs_term));
         obs_size += _obs_terms.back()->size();
 
