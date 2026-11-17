@@ -1,8 +1,8 @@
 task: Isaac-Posture-Rough-KyonFull-PLAY-v0
-run: 2026-10-27_17-11-01_rough_movingarms_max3kghandpayload_tighttrack
-checkpoint: model_7250.pt
+run: 2026-11-13_12-14-47_rough_movingarms_max3kghandpayload_tighttrack_scanrange8_12hz_scannoise05
+checkpoint: model_29149.pt
 experiment: kyon_posture_rough
-exported_at: '2026-10-28T12:11:09'
+exported_at: '2026-11-17T11:32:28'
 joint_stiffness:
 - 350
 - 350
@@ -1923,8 +1923,8 @@ scene:
           platform_width: 2.0
           inverted: true
       difficulty_range: !!python/tuple
-      - 0.1
-      - 0.1
+      - 0.4
+      - 0.6
       use_cache: false
       cache_dir: /tmp/isaaclab/terrains
     usd_path: null
@@ -2026,6 +2026,9 @@ scene:
     interval_range_s: !!python/tuple
     - 0.0
     - 0.0
+    update_period_range:
+    - 0.1
+    - 0.1
     update_occlusion_period: 0.0
     failure_rate: 0.0
   contact_forces:

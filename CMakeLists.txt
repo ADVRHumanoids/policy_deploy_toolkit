@@ -109,8 +109,8 @@ install(TARGETS deploy_policy_node switch_policy_node
 )
 
 # install scripts
-install(PROGRAMS scripts/fault_keyboard.py scripts/posture_joy.py scripts/keyboard_teleop.py
-    scripts/ee_rviz.py
+install(PROGRAMS scripts/fault_keyboard.py scripts/posture_joy.py scripts/sim_heightscan.py scripts/keyboard_teleop.py
+    scripts/ee_rviz.py scripts/lio_heightscan.py scripts/arms_teleop.py
     DESTINATION lib/${PROJECT_NAME}
 )
 

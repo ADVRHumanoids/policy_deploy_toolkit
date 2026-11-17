@@ -45,6 +45,28 @@
             args="--frame-id pelvis --child-frame-id base_link"
             if="$(var mj_heightscan)" />
 
+      <!-- ground-truth /heightscan ray-cast on a kyon_mujoco world (xbot mujoco sim only) -->
+      <arg name="sim_heightscan" default="false" />
+      <arg name="world" default="stairs_world" />
+      <node pkg="policy_deploy_toolkit"
+            exec="sim_heightscan.py"
+            output="screen"
+            if="$(var sim_heightscan)">
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="world_xml" value="$(find-pkg-share kyon_mujoco)/config/$(var world).xml"/>
+            <param name="metadata" value="$(var example_dir)/deploy_metadata.yaml"/>
+      </node>
+
+      <!-- /heightscan from the lio_mapping elevation map at the LIO pose (elevation_mapping:=true) -->
+      <arg name="lio_heightscan" default="false" />
+      <node pkg="policy_deploy_toolkit"
+            exec="lio_heightscan.py"
+            output="screen"
+            if="$(var lio_heightscan)">
+            <param name="use_sim_time" value="$(var use_sim_time)"/>
+            <param name="metadata" value="$(var example_dir)/deploy_metadata.yaml"/>
+      </node>
+
       <node pkg="joy"
             exec="joy_node"
             output="screen"
