@@ -2,6 +2,8 @@
 
       <arg name="example" default="kyon_full_locomotion_flat" />
       <arg name="enable_joy" default="false" />
+      <!-- posture from the xbot2 GUI joy page (base_velocity Twist), without joy_node/teleop -->
+      <arg name="gui_joy" default="false" />
       <arg name="use_sim_time" default="true" />
       <!-- center | mean | min | median: how a full-res depth frame collapses to the policy resolution -->
       <arg name="depth_downsample" default="center" />
@@ -94,6 +96,6 @@
       <node pkg="policy_deploy_toolkit"
             exec="posture_joy.py"
             output="screen"
-            if="$(var enable_joy)" />
+            if="$(or $(var enable_joy) $(var gui_joy))" />
 
 </launch>
