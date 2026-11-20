@@ -15,7 +15,7 @@
       <arg name="allow_missing_robot_joints" default="false" />
       <arg name="joint_velocity_limit_scale" default="1.0" />
       <!-- max lateral joystick command [m/s]; 0 for depth students trained with lin_vel_y = 0 -->
-      <arg name="scale_linear_y" default="0.0" />
+      <arg name="scale_linear_y" default="0.5" />
       <!-- /heightscan from the xbot2_py_mujoco terrain scanner: column-major organized cloud in frame pelvis -->
       <arg name="mj_heightscan" default="false" />
       <!-- flat ground without a scanner: height scan filled from the pelvis height (legs FK) -->

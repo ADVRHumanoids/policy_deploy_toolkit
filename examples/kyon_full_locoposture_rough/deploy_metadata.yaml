@@ -1,8 +1,8 @@
 task: Isaac-Posture-Rough-KyonFull-PLAY-v0
-run: 2026-11-13_12-14-47_rough_movingarms_max3kghandpayload_tighttrack_scanrange8_12hz_scannoise05
-checkpoint: model_29149.pt
+run: 2026-11-19_23-08-16_rough_movingarms_max3kghandpayload_tighttrack_scanrange8_12hz_scannoise05_penroll
+checkpoint: model_45750.pt
 experiment: kyon_posture_rough
-exported_at: '2026-11-17T11:32:28'
+exported_at: '2026-11-20T13:32:34'
 joint_stiffness:
 - 350
 - 350
@@ -1743,7 +1743,7 @@ scene:
     soft_joint_pos_limit_factor: 1.0
     actuators:
       motorA:
-        class_type: isaaclab.actuators.actuator_pd:DelayedPDActuator
+        class_type: kyon_isaac.assets.torque_transmission:TanhDelayedPDActuator
         joint_names_expr:
         - hip_roll_.*
         - hip_pitch_.*
@@ -1760,6 +1760,12 @@ scene:
         viscous_friction: 1.7
         min_delay: 2
         max_delay: 14
+        velocity_error_integral_gain: 0.0
+        velocity_error_integral_limit: null
+        transmission_amplitude: 114.5319
+        transmission_scale: 139.0316
+        transmission_amplitude_randomization: 0.1
+        transmission_scale_randomization: 0.1
       motorB:
         class_type: isaaclab.actuators.actuator_pd:DelayedPDActuator
         joint_names_expr:
