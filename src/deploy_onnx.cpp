@@ -181,6 +181,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
                   << " size: " << obs_term->size()
                   << " indices: " << obs_size << ":" << obs_size + obs_term->size()
                   << std::endl;
+        _observation_specs.push_back({name, obs_size, obs_term->size()});
         _obs_terms.push_back(std::move(obs_term));
         obs_size += _obs_terms.back()->size();
 
@@ -202,6 +203,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         auto func = config["class_type"].as<std::string>();
 
         auto action_term = ActionTerm::create(func, robot_info, policy_info, config);
+        _action_specs.push_back({name, action_size, action_term->size()});
         action_size += action_term->size();
         std::cout << "Action: " << name << " func: " << func << " size: " << action_term->size() << std::endl;
         _action_terms.push_back(std::move(action_term));
@@ -233,6 +235,16 @@ const std::vector<CommandSpec>& OnnxPolicy::command_specs() const
 const std::vector<SensorSpec> &OnnxPolicy::sensor_specs() const
 {
     return _sensor_specs;
+}
+
+const std::vector<PolicyTermSpec>& OnnxPolicy::observation_specs() const
+{
+    return _observation_specs;
+}
+
+const std::vector<PolicyTermSpec>& OnnxPolicy::action_specs() const
+{
+    return _action_specs;
 }
 
 const std::vector<std::string>& OnnxPolicy::recurrent_state_names() const

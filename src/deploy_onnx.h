@@ -35,6 +35,10 @@ const std::vector<CommandSpec>& command_specs() const;
 
 const std::vector<SensorSpec>& sensor_specs() const;
 
+const std::vector<PolicyTermSpec>& observation_specs() const;
+
+const std::vector<PolicyTermSpec>& action_specs() const;
+
 const std::vector<std::string>& recurrent_state_names() const;
 
 std::map<std::string, Eigen::VectorXd> default_commands() const;
@@ -100,6 +104,8 @@ std::vector<std::unique_ptr<ActionTerm>> _action_terms;
 std::vector<std::unique_ptr<CommandTerm>> _command_terms;
 std::vector<CommandSpec> _command_specs;
 std::vector<SensorSpec> _sensor_specs;
+std::vector<PolicyTermSpec> _observation_specs;
+std::vector<PolicyTermSpec> _action_specs;
 PolicyInfo _policy_info;
 
 };

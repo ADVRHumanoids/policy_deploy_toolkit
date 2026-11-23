@@ -3,21 +3,14 @@ project(policy_deploy_toolkit LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 
-find_package(ament_cmake REQUIRED)
+# options
+option(BUILD_ROS_NODE "Build the ROS 2 / XBot2 deployment node" ON)
+option(BUILD_PYTHON_BINDINGS "Build and install Python bindings via pybind11" OFF)
+
+# Dependencies shared by the standalone runtime and Python bindings.
+find_package(Eigen3 REQUIRED)
 find_package(onnxruntime REQUIRED)
 find_package(yaml-cpp REQUIRED)
-find_package(xbot2 REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
-find_package(tf2 REQUIRED)
-find_package(tf2_ros REQUIRED)
-find_package(xbot2_diagnostics QUIET)
-
-# options
-option(ENABLE_COMMAND_TIMESTAMPS "Enable timestamps for command messages (requires xbot2_interface 1.2.0+)" OFF)
-option(BUILD_PYTHON_BINDINGS "Build and install Python bindings via pybind11" OFF)
 
 # library
 add_library(policy_deploy_toolkit STATIC
@@ -40,7 +33,6 @@ target_link_libraries(policy_deploy_toolkit
 )
 
 if(BUILD_PYTHON_BINDINGS)
-    find_package(ament_cmake_python REQUIRED)
     find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
     find_package(pybind11 CONFIG REQUIRED)
 
@@ -58,67 +50,26 @@ if(BUILD_PYTHON_BINDINGS)
             "python/policy_deploy_toolkit/${module}.py" COPYONLY)
     endforeach()
 
-    ament_get_python_install_dir(PYTHON_INSTALL_DIR)
-    ament_python_install_package(${PROJECT_NAME}
-        PACKAGE_DIR "python/policy_deploy_toolkit")
-    install(TARGETS policy_deploy_toolkit_python
-        LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}"
-    )
+    if(NOT BUILD_ROS_NODE)
+        # Use the selected interpreter's layout, relative to CMAKE_INSTALL_PREFIX.
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -c
+                "import sysconfig; print(sysconfig.get_path('platlib', vars={'base': '', 'platbase': ''}).lstrip('/'))"
+            OUTPUT_VARIABLE _python_install_dir
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            COMMAND_ERROR_IS_FATAL ANY
+        )
+        set(PYTHON_INSTALL_DIR "${_python_install_dir}" CACHE PATH
+            "Python package install directory relative to CMAKE_INSTALL_PREFIX")
+        install(DIRECTORY python/policy_deploy_toolkit
+            DESTINATION "${PYTHON_INSTALL_DIR}"
+            FILES_MATCHING PATTERN "*.py"
+        )
+        install(TARGETS policy_deploy_toolkit_python
+            LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}"
+        )
+    endif()
 endif()
-
-# node
-add_executable(deploy_policy_node
-    src/deploy_policy_node.cpp
-    src/ros_adaptation_receiver.cpp
-    src/ros_command_receiver.cpp
-    src/ros_sensor_receiver.cpp
-    )
-
-target_link_libraries(deploy_policy_node
-    PRIVATE
-    policy_deploy_toolkit
-    xbot2_diagnostics::xbot2_diagnostics_ros
-    xbot2::xbot2
-    rclcpp::rclcpp
-    tf2::tf2
-    tf2_ros::tf2_ros
-    std_msgs::std_msgs__rosidl_typesupport_cpp
-    geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
-    sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
-)
-
-if(xbot2_diagnostics_FOUND)
-    target_link_libraries(deploy_policy_node
-        PRIVATE
-        xbot2_diagnostics::xbot2_diagnostics
-    )
-    target_compile_definitions(deploy_policy_node
-        PRIVATE
-        -DHAS_XBOT2_DIAGNOSTICS
-    )
-endif()
-
-if(ENABLE_COMMAND_TIMESTAMPS)
-    target_compile_definitions(deploy_policy_node
-        PRIVATE
-        -DENABLE_COMMAND_TIMESTAMPS
-    )
-endif()
-
-# install node
-install(TARGETS deploy_policy_node
-    DESTINATION lib/${PROJECT_NAME}
-)
-
-# install examples
-install(DIRECTORY examples/
-    DESTINATION share/${PROJECT_NAME}/examples
-)
-
-# install launch files
-install(DIRECTORY launch/
-    DESTINATION share/${PROJECT_NAME}/launch
-)   
 
 include(CTest)
 
@@ -146,19 +97,6 @@ if(BUILD_TESTING)
     target_link_libraries(omnisteering_action_test PRIVATE policy_deploy_toolkit)
     add_test(NAME omnisteering_action_test COMMAND omnisteering_action_test)
 
-    add_executable(ros_adaptation_receiver_test
-        test/ros_adaptation_receiver_test.cpp
-        src/ros_adaptation_receiver.cpp
-    )
-    target_include_directories(ros_adaptation_receiver_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(ros_adaptation_receiver_test PRIVATE
-        Eigen3::Eigen
-        rclcpp::rclcpp
-        std_msgs::std_msgs__rosidl_typesupport_cpp
-    )
-    add_test(NAME ros_adaptation_receiver_test COMMAND ros_adaptation_receiver_test)
-    set_tests_properties(ros_adaptation_receiver_test PROPERTIES TIMEOUT 30)
-
     add_executable(adaptation_parameter_slice_test test/adaptation_parameter_slice_test.cpp)
     target_link_libraries(adaptation_parameter_slice_test PRIVATE policy_deploy_toolkit)
     add_test(NAME adaptation_parameter_slice_test COMMAND adaptation_parameter_slice_test)
@@ -178,22 +116,125 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME command_term_test COMMAND command_term_test)
+endif()
 
-    add_executable(ros_sensor_receiver_test
-        test/ros_sensor_receiver_test.cpp
+# ROS 2 / XBot2 integration
+if(BUILD_ROS_NODE)
+    option(ENABLE_COMMAND_TIMESTAMPS "Enable timestamps for command messages (requires xbot2_interface 1.2.0+)" OFF)
+
+    find_package(ament_cmake REQUIRED)
+    find_package(xbot2 REQUIRED)
+    find_package(rclcpp REQUIRED)
+    find_package(std_msgs REQUIRED)
+    find_package(geometry_msgs REQUIRED)
+    find_package(sensor_msgs REQUIRED)
+    find_package(tf2 REQUIRED)
+    find_package(tf2_ros REQUIRED)
+    find_package(xbot2_diagnostics QUIET)
+
+    if(BUILD_PYTHON_BINDINGS)
+        find_package(ament_cmake_python REQUIRED)
+        ament_get_python_install_dir(PYTHON_INSTALL_DIR)
+        ament_python_install_package(${PROJECT_NAME}
+            PACKAGE_DIR "python/policy_deploy_toolkit")
+        install(TARGETS policy_deploy_toolkit_python
+            LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}"
+        )
+    endif()
+
+    # node
+    add_executable(deploy_policy_node
+        src/deploy_policy_node.cpp
+        src/ros_adaptation_receiver.cpp
+        src/ros_command_receiver.cpp
         src/ros_sensor_receiver.cpp
     )
-    target_link_libraries(ros_sensor_receiver_test PRIVATE
+
+    target_link_libraries(deploy_policy_node
+        PRIVATE
         policy_deploy_toolkit
+        xbot2_diagnostics::xbot2_diagnostics_ros
+        xbot2::xbot2
         rclcpp::rclcpp
         tf2::tf2
         tf2_ros::tf2_ros
+        std_msgs::std_msgs__rosidl_typesupport_cpp
+        geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
         sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
-        xbot2_diagnostics::xbot2_diagnostics_ros
     )
-    add_test(NAME ros_sensor_receiver_test COMMAND ros_sensor_receiver_test)
-    set_tests_properties(ros_sensor_receiver_test PROPERTIES TIMEOUT 30)
+
+    if(xbot2_diagnostics_FOUND)
+        target_link_libraries(deploy_policy_node
+            PRIVATE
+            xbot2_diagnostics::xbot2_diagnostics
+        )
+        target_compile_definitions(deploy_policy_node
+            PRIVATE
+            -DHAS_XBOT2_DIAGNOSTICS
+        )
+    endif()
+
+    if(ENABLE_COMMAND_TIMESTAMPS)
+        target_compile_definitions(deploy_policy_node
+            PRIVATE
+            -DENABLE_COMMAND_TIMESTAMPS
+        )
+    endif()
+
+    # install node
+    install(TARGETS deploy_policy_node
+        DESTINATION lib/${PROJECT_NAME}
+    )
+
+    # install examples
+    install(DIRECTORY examples/
+        DESTINATION share/${PROJECT_NAME}/examples
+    )
+
+    # install launch files
+    install(DIRECTORY launch/
+        DESTINATION share/${PROJECT_NAME}/launch
+    )
+
+    if(BUILD_TESTING)
+        add_executable(ros_policy_term_publisher_test test/ros_policy_term_publisher_test.cpp)
+        target_include_directories(ros_policy_term_publisher_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_link_libraries(ros_policy_term_publisher_test PRIVATE
+            Eigen3::Eigen
+            rclcpp::rclcpp
+            std_msgs::std_msgs__rosidl_typesupport_cpp
+        )
+        add_test(NAME ros_policy_term_publisher_test COMMAND ros_policy_term_publisher_test)
+        set_tests_properties(ros_policy_term_publisher_test PROPERTIES TIMEOUT 30)
+
+        add_executable(ros_adaptation_receiver_test
+            test/ros_adaptation_receiver_test.cpp
+            src/ros_adaptation_receiver.cpp
+        )
+        target_include_directories(ros_adaptation_receiver_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_link_libraries(ros_adaptation_receiver_test PRIVATE
+            Eigen3::Eigen
+            rclcpp::rclcpp
+            std_msgs::std_msgs__rosidl_typesupport_cpp
+        )
+        add_test(NAME ros_adaptation_receiver_test COMMAND ros_adaptation_receiver_test)
+        set_tests_properties(ros_adaptation_receiver_test PROPERTIES TIMEOUT 30)
+
+        add_executable(ros_sensor_receiver_test
+            test/ros_sensor_receiver_test.cpp
+            src/ros_sensor_receiver.cpp
+    )
+        target_link_libraries(ros_sensor_receiver_test PRIVATE
+            policy_deploy_toolkit
+            rclcpp::rclcpp
+            tf2::tf2
+            tf2_ros::tf2_ros
+            sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
+            xbot2_diagnostics::xbot2_diagnostics_ros
+        )
+        add_test(NAME ros_sensor_receiver_test COMMAND ros_sensor_receiver_test)
+        set_tests_properties(ros_sensor_receiver_test PROPERTIES TIMEOUT 30)
+    endif()
+
+    ament_package()
 endif()
-
-
-ament_package()

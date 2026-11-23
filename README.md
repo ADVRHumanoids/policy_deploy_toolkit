@@ -29,22 +29,32 @@ forest grow xbot2_policy_toolkit -j4
 
 ## Optional Python bindings
 
-Python bindings are disabled by default. To enable them, install pybind11 headers
-and CMake configuration (for example, `pybind11-dev` on Ubuntu), Python development
-headers, `ament_cmake_python`, and NumPy for the selected Python interpreter. Then:
+Python bindings are disabled by default. A standalone build needs only a C++23
+compiler, CMake, Eigen3, ONNX Runtime, yaml-cpp, pybind11, and Python development
+headers. Install NumPy in the selected Python interpreter to use the bindings.
+Disable the deployment node to build without ROS, ament, XBot2, or XBot2 diagnostics:
 
 ```bash
-cmake -S . -B build -DBUILD_PYTHON_BINDINGS=ON -DCMAKE_INSTALL_PREFIX="$PWD/install"
-cmake --build build
-cmake --install build
-source install/share/policy_deploy_toolkit/local_setup.bash
-python3 -c "import policy_deploy_toolkit"
+cmake -S . -B build-python -DBUILD_ROS_NODE=OFF -DBUILD_PYTHON_BINDINGS=ON \
+    -DCMAKE_INSTALL_PREFIX="$PWD/install"
+cmake --build build-python -j
+ctest --test-dir build-python --output-on-failure
+cmake --install build-python
+PYTHONPATH="$PWD/build-python/python${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -c "import policy_deploy_toolkit"
 ```
 
-With colcon, pass `--cmake-args -DBUILD_PYTHON_BINDINGS=ON`. Set
-`-DPython3_EXECUTABLE=/path/to/python3` to select an interpreter. The extension
-installs under the prefix's Python package directory; sourcing the prefix adds
-it to `PYTHONPATH`.
+Set `-DPython3_EXECUTABLE=/path/to/python3` to select an interpreter and
+`-Donnxruntime_DIR=/path/to/lib/cmake/onnxruntime` if ONNX Runtime is outside
+CMake's search paths. The standalone install uses the interpreter's package layout
+under the install prefix; set `PYTHONPATH` to that directory to import the installed
+package, or override it with `-DPYTHON_INSTALL_DIR=lib/python3/site-packages`.
+MuJoCo and `xbot2_py_mujoco` are optional dependencies for simulation only.
+
+`BUILD_ROS_NODE` defaults to `ON`, preserving the ROS/colcon build. To include the
+bindings there, install `ament_cmake_python` and pass
+`--cmake-args -DBUILD_PYTHON_BINDINGS=ON` to colcon. Sourcing the resulting install
+prefix adds the Python package to `PYTHONPATH`.
 
 The Python package contains the internal `_bindings` extension and the MuJoCo
 runner. Its top-level API exposes `OnnxPolicy`, `RobotInfo`, `PolicyInfo`, `Inputs`, `Outputs`,
@@ -352,6 +362,113 @@ ros2 launch policy_deploy_toolkit run_example.launch.xml  # [enable_joy:=true] [
 
 The executable runs a control loop, feeds the policy from the current robot state, and sends the resulting command back through `RobotInterface`.
 Commands are received through the `/policy_deploy_node/commands/<command-name>` topic. 
+
+To smooth velocity commands, add the optional custom `filter_cutoff_hz` field
+under the command in `deploy_metadata.yaml`, alongside `class_type` and `ranges`:
+
+```yaml
+commands:
+  base_velocity:
+    filter_cutoff_hz: 2.0
+    # Existing class_type, ranges, and other command settings go here.
+```
+
+The cutoff must be finite and positive. Omitting the field disables filtering.
+A first-order low-pass filter smooths all command components after sanitization,
+at each control tick using elapsed ROS time. It starts from the command defaults.
+The update is `y += (1 - exp(-2*pi*filter_cutoff_hz*dt)) * (target - y)`.
+Command timeouts still return immediately to defaults and reset the filter;
+the next valid command ramps from those defaults.
+
+Policy telemetry uses the node's private namespace: `~/policy/observations`,
+`~/policy/actions`, `~/policy/q_ref`, and `~/policy/hidden_states/state_<index>`.
+For the default node name and namespace, these resolve under `/policy_deploy_node/policy/`.
+
+Each configured observation and action term also publishes on its own
+`~/policy/observations/<term-name>` or `~/policy/actions/<term-name>` topic,
+using the term names from deployment metadata. All observation/action topics use
+`std_msgs/msg/Float32MultiArray` with reliable QoS and depth 10, and publish once
+per completed policy run. Observation terms are slices of the model input,
+including clipping and flattened history (oldest to newest). Action terms are
+slices of the raw model output, before action processing. Ordering within each
+term matches its slice in the combined vector. Only the selected observation
+group is published; the combined topics remain available.
+
+## Omnisteering
+
+Command-driven steering and wheel rolling, with optional bounded policy
+residuals, are supported through exported `OmnisteeringAction` metadata. Missing
+or zero residual scales preserve legacy nominal control; nonzero scales enable
+four steering and four drive residuals for Kyon. See
+[configuration and behavior](docs/omnisteering.md).
+
+## Position-reference feedback
+
+`~/policy/q_ref` publishes the latest received position-reference feedback as
+`sensor_msgs/msg/JointState`, with reliable QoS and depth 10. Names and positions
+follow the robot's `getVNames()` and minimal-coordinate ordering. For floating-base
+robots, the first six entries are omitted from both arrays. Velocity and effort
+are empty; the policy's internal `Inputs::q_ref` retains the complete vector.
+
+The header timestamp is local ROS time sampled immediately after successful
+`sense()`, before converting the feedback. It is not controller application time
+or exact network receipt time. A message is published every successful sensing
+cycle, including while waiting for height scans; equal values may repeat.
+
+## Adaptation parameters
+
+The observation function
+`kyon_isaac.tasks.locomotion.velocity.mdp.observations:adaptation_parameter_slice`
+reads the half-open interval `[params.start, params.end)` from
+`Inputs::adaptation_parameters`. Bounds must satisfy `0 <= start < end <= 8`.
+The usual observation clipping and history apply; training noise is not added.
+Nonfinite adaptation values are rejected.
+
+The fixed-size eight-value input defaults to `[0, 0, 0, 0, 1, 1, 1, 1]`:
+
+| Indices | Values | Metadata term |
+| --- | --- | --- |
+| `[0:1]` | Added pelvis mass relative to nominal, kg | `payload_mass` |
+| `[1:4]` | Pelvis CoM offset relative to nominal, x/y/z in the pelvis frame, m | `payload_com` |
+| `[4:8]` | Four dimensionless foot friction coefficients, in training foot order | `foot_friction` |
+
+The training event defaults to foot order `contact_1`, `contact_2`, `contact_3`,
+`contact_4`; preserve any custom training order. Supply mass delta and CoM offset
+rather than absolute robot mass or an absolute CoM position. A C++ estimator can
+update the complete vector before each `OnnxPolicy::run()`:
+
+```cpp
+inputs.adaptation_parameters << mass_delta, com_dx, com_dy, com_dz,
+                                mu_1, mu_2, mu_3, mu_4;
+```
+
+### ROS 2 interface
+
+Publish estimates to `~/adaptation_parameters` using
+`std_msgs/msg/Float64MultiArray`, with depth 1 and best-effort subscription QoS.
+Each message carries all eight values in the order above. The receiver requires
+exactly eight finite values and nonnegative friction; invalid messages retain
+the previous estimate. Signed mass changes and CoM offsets are accepted.
+
+The receiver copies the latest complete vector into `Inputs::adaptation_parameters`
+under a mutex before each policy run. Defaults apply until the first valid
+estimate; the latest valid estimate is then kept indefinitely, without a timeout.
+Each policy tick publishes the actual input vector to
+`~/adaptation_parameters/current`, also as `Float64MultiArray`, with reliable
+depth 1 QoS. Both topics can be remapped through ROS 2.
+
+For example:
+
+```bash
+ros2 topic pub --rate 20 /policy_deploy_node/adaptation_parameters \
+  std_msgs/msg/Float64MultiArray '{data: [2.5, 0.01, -0.02, 0.03, 0.8, 0.9, 1.0, 0.7]}'
+```
+
+Inspect the values passed to the policy:
+
+```bash
+ros2 topic echo /policy_deploy_node/adaptation_parameters/current
+```
 
 ## Height scans
 

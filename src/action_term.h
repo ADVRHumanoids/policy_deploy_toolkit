@@ -58,7 +58,8 @@ private:
     std::vector<std::string> _wheel_names;
     std::string _command_name;
     double _vmax, _wheel_radius, _min_wheel_speed;
-    Eigen::VectorXd _steering_target;
+    double _steering_residual_scale, _drive_residual_scale;
+    Eigen::VectorXd _steering_target, _nominal_steering_target;
     bool _initialized = false;
 };
 

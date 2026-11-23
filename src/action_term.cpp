@@ -167,13 +167,18 @@ OmnisteeringActionTerm::OmnisteeringActionTerm(RobotInfo robot_info, PolicyInfo 
     _command_name(config["cmd_name"].as<std::string>("base_velocity")),
     _vmax(config["vmax"].as<double>(2.0)),
     _wheel_radius(config["wheel_radius"].as<double>(0.107)),
-    _min_wheel_speed(config["min_wheel_speed"].as<double>(0.1))
+    _min_wheel_speed(config["min_wheel_speed"].as<double>(0.1)),
+    _steering_residual_scale(config["steering_residual_scale"].as<double>(0.0)),
+    _drive_residual_scale(config["drive_residual_scale"].as<double>(0.0))
 {
     _size = 0;
     if(!std::isfinite(_vmax) || _vmax <= 0 || !std::isfinite(_wheel_radius) || _wheel_radius <= 0 ||
        !std::isfinite(_min_wheel_speed) || _min_wheel_speed < 0 ||
        !std::isfinite(_policy_info.control_dt) || _policy_info.control_dt <= 0)
         throw std::runtime_error("Omnisteering requires positive finite vmax, wheel_radius and control_dt, and nonnegative min_wheel_speed");
+    if(!std::isfinite(_steering_residual_scale) || _steering_residual_scale < 0 ||
+       !std::isfinite(_drive_residual_scale) || _drive_residual_scale < 0)
+        throw std::runtime_error("Omnisteering residual scales must be finite and nonnegative");
     if(!_robot_info.body_pose_in_base)
         throw std::runtime_error("Omnisteering requires live body_pose_in_base kinematics");
     const auto command = _policy_info.command_size.find(_command_name);
@@ -208,15 +213,19 @@ OmnisteeringActionTerm::OmnisteeringActionTerm(RobotInfo robot_info, PolicyInfo 
     }
     for(int id : bodies) _wheel_names.push_back(_robot_info.body_names[id]);
     _steering_target.resize(bodies.size());
+    _nominal_steering_target.resize(bodies.size());
+    if(_steering_residual_scale > 0 || _drive_residual_scale > 0)
+        _size = static_cast<int>(2 * bodies.size());
 }
 
 void OmnisteeringActionTerm::process_impl(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs)
 {
     const auto& command = inputs.command.at(_command_name);
-    if(raw_action.size() != 0 || command.size() < 3 || !command.head<3>().allFinite())
-        throw std::runtime_error("Omnisteering requires no policy actions and a finite planar velocity command");
+    if(raw_action.size() != _size || !raw_action.allFinite() || command.size() < 3 || !command.head<3>().allFinite())
+        throw std::runtime_error("Omnisteering requires the configured residual action dimension and finite actions/planar command");
     // Stage all results before modifying outputs, including on kinematics failure.
     Eigen::VectorXd steering(_wheel_names.size()), drive(_wheel_names.size());
+    Eigen::VectorXd nominal_steering(_wheel_names.size());
     for(std::size_t i = 0; i < _wheel_names.size(); ++i)
     {
         const int sid = _policy_info.joint_id_policy_to_robot[_steering_ids[i]];
@@ -234,15 +243,23 @@ void OmnisteeringActionTerm::process_impl(const Eigen::VectorXd& raw_action, con
         const double low = _robot_info.joint_pos_min[sid], high = _robot_info.joint_pos_max[sid];
         const double position = inputs.q[sid];
         const double previous = (!_initialized || inputs.step == 0) ? position : _steering_target[i];
+        const double previous_nominal = (!_initialized || inputs.step == 0) ? position : _nominal_steering_target[i];
         const double delta = std::atan2(roll.x() * velocity.y() - roll.y() * velocity.x(), roll.dot(velocity));
-        const double reference = moving ? feasible_reference(position, delta, low, high) : previous;
+        const double reference = moving ? feasible_reference(position, delta, low, high) : previous_nominal;
         const double max_step = std::min(_vmax, double(_robot_info.joint_vel_max[sid])) * _policy_info.control_dt;
-        steering[i] = std::clamp(previous + std::clamp(reference - previous, -max_step, max_step), low, high);
+        nominal_steering[i] = std::clamp(previous_nominal + std::clamp(reference - previous_nominal, -max_step, max_step), low, high);
+        // Offsets are absolute relative to the held nominal target, never
+        // integrated back into it. Residual authority remains available at rest.
+        const double steering_offset = _size ? _steering_residual_scale * std::clamp(raw_action[i], -1., 1.) : 0.;
+        const double desired = std::clamp(nominal_steering[i] + steering_offset, low, high);
+        steering[i] = std::clamp(previous + std::clamp(desired - previous, -max_step, max_step), low, high);
         const int did = _policy_info.joint_id_policy_to_robot[_drive_ids[i]];
         const double speed_limit = _robot_info.joint_vel_max[did];
-        drive[i] = std::clamp(moving ? velocity.dot(roll) / _wheel_radius : 0., -speed_limit, speed_limit);
+        const double drive_offset = _size ? _drive_residual_scale * std::clamp(raw_action[_wheel_names.size() + i], -1., 1.) / _wheel_radius : 0.;
+        drive[i] = std::clamp((moving ? velocity.dot(roll) / _wheel_radius : 0.) + drive_offset, -speed_limit, speed_limit);
     }
     _steering_target = steering;
+    _nominal_steering_target = nominal_steering;
     _initialized = true;
     for(std::size_t i = 0; i < _wheel_names.size(); ++i)
     {

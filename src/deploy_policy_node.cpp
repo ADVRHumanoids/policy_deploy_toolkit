@@ -12,6 +12,7 @@
 #include "ros_adaptation_receiver.h"
 #include "ros_command_receiver.h"
 #include "ros_sensor_receiver.h"
+#include "ros_policy_term_publisher.h"
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
@@ -110,6 +111,10 @@ public:
         _sensor_receiver = std::make_unique<RosSensorReceiver>(*this, *_policy, _sensor_timeout_s, robot_info.base_T_imu.linear());
         _observation_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("~/policy/observations", 10);
         _action_publisher = create_publisher<std_msgs::msg::Float32MultiArray>("~/policy/actions", 10);
+        _observation_term_publisher = std::make_unique<policy_deploy::RosPolicyTermPublisher>(
+            *this, "~/policy/observations", _policy->observation_specs());
+        _action_term_publisher = std::make_unique<policy_deploy::RosPolicyTermPublisher>(
+            *this, "~/policy/actions", _policy->action_specs());
         _q_ref_publisher = create_publisher<sensor_msgs::msg::JointState>(
             "~/policy/q_ref", rclcpp::QoS(10).reliable());
         const auto& recurrent_state_names = _policy->recurrent_state_names();
@@ -222,6 +227,8 @@ private:
             action_msg.data[i] = static_cast<float>(outputs.raw_action[i]);
         }
         _action_publisher->publish(action_msg);
+        _observation_term_publisher->publish(outputs.raw_observation);
+        _action_term_publisher->publish(outputs.raw_action);
 
         const auto& recurrent_state_names = _policy->recurrent_state_names();
         for(std::size_t i = 0; i < outputs.raw_recurrent_states.size(); ++i)
@@ -274,6 +281,8 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr _action_publisher;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr _q_ref_publisher;
     std::vector<rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr> _hidden_state_publishers;
+    std::unique_ptr<policy_deploy::RosPolicyTermPublisher> _observation_term_publisher;
+    std::unique_ptr<policy_deploy::RosPolicyTermPublisher> _action_term_publisher;
     XBot::policy::Inputs _inputs;
     std::unique_ptr<XBot::policy::Outputs> _outputs;
     std::vector<int> _vid_to_jid;

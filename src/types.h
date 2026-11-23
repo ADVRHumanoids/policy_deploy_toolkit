@@ -32,6 +32,13 @@ struct PolicyInfo {
     int height_scan_size;
 };
 
+// A named contiguous slice of the model observation or action vector.
+struct PolicyTermSpec {
+    std::string name;
+    int offset;
+    int size;
+};
+
 struct Inputs {
     uint64_t step = 0;
     double time_sec = 0;

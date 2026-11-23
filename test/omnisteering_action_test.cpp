@@ -82,9 +82,9 @@ min_wheel_speed: 0.1
     {
         return ActionTerm::create("kyon_isaac.tasks.locomotion.velocity.mdp.actions:OmnisteeringAction", robot, policy, config);
     }
-    void step(ActionTerm& term)
+    void step(ActionTerm& term, const Eigen::VectorXd& action = Eigen::VectorXd(0))
     {
-        term.process(Eigen::VectorXd(0), inputs, outputs);
+        term.process(action, inputs, outputs);
         ++inputs.step;
     }
 };
@@ -218,6 +218,116 @@ int main()
         f.inputs.command["base_velocity"][0] = std::numeric_limits<double>::quiet_NaN();
         rejects([&] { f.step(*term); });
         check(f.outputs.q_des.isZero() && f.outputs.v_des.isZero(), "Invalid input modified outputs");
+    }
+    // Zero residuals preserve legacy nominal control through command changes.
+    {
+        Fixture nominal, residual;
+        residual.config["steering_residual_scale"] = .15;
+        residual.config["drive_residual_scale"] = .2;
+        auto old_term = nominal.make(), new_term = residual.make();
+        check(new_term->size() == 8, "Residual action must consume eight outputs");
+        for(const Eigen::Vector3d& command : {Eigen::Vector3d(1., 0., 0.), Eigen::Vector3d(0., 1., 0.),
+                                           Eigen::Vector3d(0., 0., 1.), Eigen::Vector3d::Zero().eval()})
+        {
+            nominal.inputs.command["base_velocity"] = command;
+            residual.inputs.command["base_velocity"] = command;
+            for(int n = 0; n < 10; ++n)
+            {
+                nominal.step(*old_term);
+                residual.step(*new_term, Eigen::VectorXd::Zero(8));
+                check(nominal.outputs.q_des.isApprox(residual.outputs.q_des), "Zero residual changed steering");
+                check(nominal.outputs.v_des.isApprox(residual.outputs.v_des), "Zero residual changed drive");
+            }
+        }
+    }
+    // Clip residuals before scaling, preserve ordering, and never accumulate
+    // an offset into the held nominal angle, even when measured joints follow.
+    {
+        Fixture f;
+        f.config["steering_residual_scale"] = .15;
+        f.config["drive_residual_scale"] = .2;
+        f.inputs.command["base_velocity"].setZero();
+        auto term = f.make();
+        Eigen::VectorXd action(8);
+        action << 2., -2., .5, -.5, 2., -2., .5, -.5;
+        for(int n = 0; n < 100; ++n)
+        {
+            const auto previous = f.outputs.q_des.eval();
+            f.step(*term, action);
+            for(int i = 0; i < 4; ++i)
+            {
+                check(std::abs(f.outputs.q_des[f.sid(i)] - previous[f.sid(i)]) <= .020001, "Residual exceeded steering slew limit");
+                f.inputs.q[f.sid(i)] = f.outputs.q_des[f.sid(i)];
+            }
+        }
+        const double normalized[] = {1., -1., .5, -.5};
+        for(int i = 0; i < 4; ++i)
+        {
+            near(f.outputs.q_des[f.sid(i)], .15 * normalized[i]);
+            near(f.outputs.v_des[f.did(i)], 2. * normalized[i]);
+        }
+        for(int n = 0; n < 100; ++n) f.step(*term, Eigen::VectorXd::Zero(8));
+        check(f.outputs.q_des.isZero(1.e-6) && f.outputs.v_des.isZero(), "Removing residual did not restore nominal targets");
+        f.inputs.q.setConstant(.7);
+        f.inputs.step = 0;
+        f.step(*term, Eigen::VectorXd::Zero(8));
+        for(int i = 0; i < 4; ++i) near(f.outputs.q_des[f.sid(i)], .7);
+        for(int n = 0; n < 30; ++n) f.step(*term, action);
+        for(int i = 0; i < 4; ++i) near(f.outputs.q_des[f.sid(i)], .7 + .15 * normalized[i]);
+    }
+    // Add drive residuals to nominal signed speed, then apply robot limits.
+    {
+        Fixture f;
+        f.config["steering_residual_scale"] = .15;
+        f.config["drive_residual_scale"] = .2;
+        f.robot.joint_pos_min.setConstant(-.1);
+        f.robot.joint_pos_max.setConstant(.1);
+        f.robot.joint_vel_max.setConstant(4.);
+        auto term = f.make();
+        for(int n = 0; n < 30; ++n) f.step(*term, Eigen::VectorXd::Constant(8, 100.));
+        for(int i = 0; i < 4; ++i)
+        {
+            near(f.outputs.q_des[f.sid(i)], .1);
+            near(f.outputs.v_des[f.did(i)], 4.);
+        }
+        f.inputs.command["base_velocity"].setZero();
+        f.step(*term, Eigen::VectorXd::Constant(8, -100.));
+        for(int i = 0; i < 4; ++i) near(f.outputs.v_des[f.did(i)], -2.);
+    }
+    // Either nonzero scale enables all eight residual slots. Invalid input
+    // leaves both the staged controller state and output commands unchanged.
+    for(bool steering_only : {true, false})
+    {
+        Fixture f;
+        f.config[steering_only ? "steering_residual_scale" : "drive_residual_scale"] = .15;
+        auto term = f.make();
+        check(term->size() == 8, "One enabled residual scale requires eight action slots");
+        f.inputs.command["base_velocity"] = Eigen::Vector3d(std::cos(1.4), std::sin(1.4), 0.);
+        f.step(*term, Eigen::VectorXd::Zero(8));
+        const auto before_q = f.outputs.q_des.eval(), before_v = f.outputs.v_des.eval();
+        rejects([&] { f.step(*term); });
+        Eigen::VectorXd bad = Eigen::VectorXd::Zero(8);
+        bad[7] = std::numeric_limits<double>::quiet_NaN();
+        rejects([&] { f.step(*term, bad); });
+        check(f.outputs.q_des == before_q && f.outputs.v_des == before_v, "Invalid residual modified outputs");
+        f.step(*term, Eigen::VectorXd::Zero(8));
+        near(f.outputs.q_des[f.sid(0)], .04);
+    }
+    for(const char* field : {"steering_residual_scale", "drive_residual_scale"})
+    {
+        Fixture f;
+        for(double invalid : {-1., std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
+        {
+            f.config[field] = invalid;
+            rejects([&] { f.make(); });
+        }
+    }
+    // Explicit zero scales retain the old zero-output metadata contract.
+    {
+        Fixture f;
+        f.config["steering_residual_scale"] = 0.;
+        f.config["drive_residual_scale"] = 0.;
+        check(f.make()->size() == 0, "Zero scales changed legacy action dimension");
     }
     // Existing learned position/velocity terms still use their joint-action metadata.
     for(bool position : {true, false})
