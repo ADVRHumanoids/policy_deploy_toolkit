@@ -13,23 +13,37 @@ from policy_deploy_toolkit.rollout_actions import (
 
 def main():
     parser = create_arg_parser(description=__doc__)
-    parser.add_argument('--speed', type=float, default=1., help='Forward command in m/s')
-    parser.add_argument('--force-body', help='Body receiving disturbances (default: --base-body)')
-    parser.add_argument('--respawn-position', nargs=3, type=float, default=(0., 0., .5),
-                        metavar=('X', 'Y', 'Z'), help='Final floating-root world position')
     args = parser.parse_args()
 
     try:
         actions = [
-            VelocityCommand(vx=args.speed, duration=2.),
-            VelocityCommand(wz=1., duration=2.),
-            VelocityCommand(vx=args.speed, duration=10., sub_actions=[
-                ApplyForce(body=args.force_body or args.base_body, fy=1000., duration=.2),
-                EmptyAction(duration=.5),
-                ApplyForce(body=args.force_body or args.base_body, fy=-1000., duration=.2),
+            # climb stairs
+            Respawn(terrain='pyramid_stairs_inv_5', position=[0.8, 0, -0.3]),
+            VelocityCommand(vx=0.5, duration=10.),
+
+            # descend stairs with disturbances
+            Respawn(terrain='pyramid_stairs_5', position=[0.8, 0, -0.3]),
+            VelocityCommand(vx=1.0, duration=6., sub_actions=[
+                ApplyForce(body='base_link', fy=1000., duration=.2, start_offset=4.0),
+                EmptyAction(duration=1.0),
+                ApplyForce(body='base_link', fy=-1000., duration=.2),
             ]),
-            Respawn(position=args.respawn_position, yaw=0.),
-            VelocityCommand(vx=args.speed, duration=5.),
+
+            # climb hill
+            Respawn(terrain='hf_pyramid_slope_inv_3', position=[0.8, 0, -0.3]),
+            VelocityCommand(vx=1.0, duration=6., sub_actions=[
+                ApplyForce(body='base_link', fy=1000., duration=.2, start_offset=4.0),
+                EmptyAction(duration=1.0),
+                ApplyForce(body='base_link', fy=-1000., duration=.2),
+            ]),
+
+            # rough boxes_1
+            Respawn(terrain='boxes_5', position=[0.8, 0, -0.3]),
+            VelocityCommand(vx=1.0, duration=6., sub_actions=[
+                ApplyForce(body='base_link', fy=1000., duration=.2, start_offset=4.0),
+                EmptyAction(duration=1.0),
+                ApplyForce(body='base_link', fy=-1000., duration=.2),
+            ]),
         ]
         sequence = ActionSequence(actions)
         args.duration = min(args.duration, sequence.duration) if args.duration is not None else sequence.duration

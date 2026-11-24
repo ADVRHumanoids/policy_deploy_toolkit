@@ -39,6 +39,32 @@ class Simulation:
 
 
 class RolloutActionsTest(unittest.TestCase):
+    def test_named_respawn_resolves_terrain_and_keeps_yaw(self):
+        sim = Simulation()
+        sim.terrain_position = lambda name: {'terrain_r0_c0_stairs': (1., 2., 3.)}[name]
+        action = Respawn(terrain='terrain_r0_c0_stairs', yaw=math.pi)
+        self.assertIn('terrain_r0_c0_stairs', action.description)
+        sim.tick(ActionSequence([action]), 0)
+        pose = sim.events[0][2]
+        self.assertEqual(pose['position'], (1., 2., 3.))
+        self.assertAlmostEqual(pose['quaternion'][3], 1.)
+
+    def test_respawn_requires_valid_target(self):
+        for kwargs in ({}, {'terrain': ''}, {'terrain': 3},
+                       {'position': [1, 2], 'terrain': 'stairs'}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                Respawn(**kwargs)
+
+    def test_respawn_position_is_relative_to_terrain_or_world(self):
+        for terrain, expected in ((None, (.5, -1., .2)), ('stairs', (1.5, 1., 3.2))):
+            with self.subTest(terrain=terrain):
+                sim = Simulation()
+                sim.terrain_position = lambda name: (1., 2., 3.)
+                action = Respawn(terrain=terrain, position=(.5, -1., .2), yaw=math.pi / 2)
+                sim.tick(ActionSequence([action]), 0)
+                self.assertEqual(sim.events[0][2]['position'], expected)
+                self.assertAlmostEqual(sim.events[0][2]['quaternion'][3], 2**-.5)
+
     def test_example_flushes_completion_at_duration_limit(self):
         import importlib.util
         import runpy
@@ -60,6 +86,9 @@ class RolloutActionsTest(unittest.TestCase):
 
             def __exit__(self, *exc):
                 return False
+
+            def terrain_position(self, name):
+                return (0., 0., .5)
 
             def run(self, callback):
                 self.sequence = callback

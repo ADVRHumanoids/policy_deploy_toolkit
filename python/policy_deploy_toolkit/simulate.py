@@ -528,6 +528,17 @@ def _positive_int(value):
     return number
 
 
+def _configure_camera(camera, track_body_id, distance):
+    if track_body_id is not None:
+        camera.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+        camera.trackbodyid = track_body_id
+        camera.elevation = -15
+        # The free-camera default scales with the whole scene, including terrain.
+        camera.distance = 3.
+    if distance is not None:
+        camera.distance = distance
+
+
 @contextmanager
 def _video_recorder(runner, path, fps, size, track_body_id, duration, camera_distance=None,
                     geom_group_blacklist=()):
@@ -543,11 +554,7 @@ def _video_recorder(runner, path, fps, size, track_body_id, duration, camera_dis
     for group in geom_group_blacklist:
         scene_option.geomgroup[group] = 0
     mujoco.mjv_defaultFreeCamera(model, camera)
-    if camera_distance is not None:
-        camera.distance = camera_distance
-    if track_body_id is not None:
-        camera.type = mujoco.mjtCamera.mjCAMERA_TRACKING
-        camera.trackbodyid = track_body_id
+    _configure_camera(camera, track_body_id, camera_distance)
     path.parent.mkdir(parents=True, exist_ok=True)
     with ExitStack() as stack:
         renderer = stack.enter_context(_profile_call(
@@ -584,6 +591,8 @@ def add_arguments(parser):
     parser.add_argument('--mjcf', required=True, type=Path, help='Compiled robot/scene MJCF XML')
     parser.add_argument('--policy', required=True, type=Path, help='ONNX policy file')
     parser.add_argument('--metadata', type=Path, help='Defaults to deploy_metadata.yaml beside the policy')
+    parser.add_argument('--spawn-file', type=Path,
+                        help='Named terrain spawn map (default: spawn_locations.yaml beside the MJCF)')
     parser.add_argument('--base-body', default='base_link')
     parser.add_argument('--imu-site', default='imu_link')
     parser.add_argument('--obs-group', default='')
@@ -602,7 +611,7 @@ def add_arguments(parser):
                         metavar=('WIDTH', 'HEIGHT'), help='Video resolution (default: 640 480)')
     parser.add_argument('--track-body', metavar='BODY', help='Make the viewer camera follow this body')
     parser.add_argument('--camera-distance', type=_positive, metavar='METERS',
-                        help='Viewer and video camera distance from the target')
+                        help='Viewer and video camera distance (default: 3 m with --track-body; scene default otherwise)')
     parser.add_argument('--geom-group-blacklist', nargs='+', type=int, choices=range(6),
                         action='extend', default=[], metavar='GROUP',
                         help='Hide geometry groups in viewer and video (0–5; repeatable)')
@@ -743,6 +752,26 @@ class Simulation:
         """Reset at a floating-root world pose (quaternion order: w, x, y, z)."""
         self.reset(position=position, quaternion=quaternion, preserve_commands=preserve_commands)
 
+    def terrain_position(self, name):
+        """Resolve a terrain tile's world spawn position from the generated YAML."""
+        import yaml
+
+        path = self.args.spawn_file or self.args.mjcf.resolve().with_name('spawn_locations.yaml')
+        locations = yaml.safe_load(path.expanduser().read_text())
+        if isinstance(locations, dict) and 'spawn_locations' in locations:
+            locations = locations['spawn_locations']
+        if not isinstance(locations, dict):
+            raise ValueError(f'{path}: named respawns require a terrain map; regenerate the terrain')
+        if name not in locations:
+            raise ValueError(f'Unknown terrain {name!r} in {path}; available: {", ".join(map(str, locations))}')
+        try:
+            position = np.asarray(locations[name], dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'Terrain {name!r} must have a finite [x, y, z] spawn position') from exc
+        if position.shape != (3,) or not np.all(np.isfinite(position)):
+            raise ValueError(f'Terrain {name!r} must have a finite [x, y, z] spawn position')
+        return tuple(position.tolist())
+
     def stop(self):
         """End run() or a loop using running; resources close on context exit."""
         self._stopped = True
@@ -768,11 +797,7 @@ class Simulation:
                 with self.viewer.lock():
                     for group in self.args.geom_group_blacklist:
                         self.viewer.opt.geomgroup[group] = 0
-                    if self._track_body_id is not None:
-                        self.viewer.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
-                        self.viewer.cam.trackbodyid = self._track_body_id
-                    if self.args.camera_distance is not None:
-                        self.viewer.cam.distance = self.args.camera_distance
+                    _configure_camera(self.viewer.cam, self._track_body_id, self.args.camera_distance)
         except BaseException:
             self._closed = True
             stack.close()

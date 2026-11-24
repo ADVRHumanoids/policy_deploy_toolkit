@@ -302,6 +302,38 @@ class MujocoPolicyTest(unittest.TestCase):
             self.assertEqual(len(capture_times), 81)  # Initial frame, then each physics step.
             self.assertTrue(np.all(np.diff(capture_times) > 0))
 
+    def test_named_terrain_respawn_from_generated_spawn_file(self):
+        from contextlib import nullcontext
+        from policy_deploy_toolkit.rollout_actions import ActionSequence, Respawn
+
+        xml = self.xml.replace('<body name="root" pos="0 0 1">',
+                               '<body name="root" pos="0 0 1"><freejoint/>')
+        with tempfile.TemporaryDirectory() as directory:
+            scene = Path(directory) / 'scene.xml'
+            scene.write_text(xml)
+            spawn_file = scene.with_name('spawn_locations.yaml')
+            spawn_file.write_text('spawn_locations:\n  terrain_r0_c0_stairs: [1, 2, 1.2]\n')
+            with patch('policy_deploy_toolkit.simulate._video_recorder', return_value=nullcontext(None)):
+                with Simulation.from_cli(['--mjcf', str(scene), '--policy', str(self.example / 'policy.onnx'),
+                                         '--headless']) as sim:
+                    ActionSequence([Respawn(terrain='terrain_r0_c0_stairs', yaw=np.pi / 2)])(sim)
+                    np.testing.assert_allclose(sim.data.qpos[:7], [1, 2, 1.2, 2**-.5, 0, 0, 2**-.5])
+                    ActionSequence([Respawn(terrain='terrain_r0_c0_stairs',
+                                            position=[.5, -1., .2], yaw=np.pi / 2)])(sim)
+                    np.testing.assert_allclose(sim.data.qpos[:7], [1.5, 1, 1.4, 2**-.5, 0, 0, 2**-.5])
+                    with self.assertRaisesRegex(ValueError, 'Unknown terrain.*available: terrain_r0_c0_stairs'):
+                        sim.terrain_position('missing')
+                    for value in ('[1, 2]', '[1, 2, .nan]', 'invalid'):
+                        spawn_file.write_text(f'spawn_locations:\n  stairs: {value}\n')
+                        with self.assertRaisesRegex(ValueError, 'finite'):
+                            sim.terrain_position('stairs')
+                    spawn_file.write_text('spawn_locations:\n  - [1, 2, 3]\n')
+                    with self.assertRaisesRegex(ValueError, 'regenerate'):
+                        sim.terrain_position('stairs')
+                    sim.args.spawn_file = Path(directory) / 'custom.yaml'
+                    sim.args.spawn_file.write_text('rough: [4, 5, 6]\n')
+                    self.assertEqual(sim.terrain_position('rough'), (4., 5., 6.))
+
     def test_action_sequence_drives_real_policy_forces_and_respawns(self):
         from contextlib import nullcontext
         from policy_deploy_toolkit.rollout_actions import (
@@ -332,6 +364,49 @@ class MujocoPolicyTest(unittest.TestCase):
                     np.testing.assert_allclose(sim.data.qpos[:7], [1, 2, 1.2, 2**-.5, 0, 0, 2**-.5])
                     np.testing.assert_array_equal(sim.commands['base_velocity'], [0, 0, 0])
                     np.testing.assert_array_equal(sim.data.xfrc_applied, 0)
+
+    @unittest.skipUnless(importlib.util.find_spec('imageio') and importlib.util.find_spec('imageio_ffmpeg'),
+                         'Optional video dependencies are not installed')
+    def test_video_tracking_follows_motion_and_teleports_on_large_terrain(self):
+        from policy_deploy_toolkit.simulate import _video_recorder
+
+        model = mujoco.MjModel.from_xml_string(
+            '<mujoco><worldbody><geom type="box" size="100 100 .1" pos="0 0 -1"/>'
+            '<body name="pelvis" pos="0 0 1"><freejoint/><geom size=".2"/></body>'
+            '</worldbody></mujoco>')
+        data = mujoco.MjData(model)
+        scene = mujoco.MjvScene(model, maxgeom=100)
+        renderer = MagicMock()
+        renderer.__enter__.return_value = renderer
+        renderer.scene = scene
+        renderer.render.return_value = np.zeros((48, 64, 3), dtype=np.uint8)
+        runner = SimpleNamespace(model=model, data=data, elapsed_time=0., profile=None,
+                                 simulator=MagicMock())
+        runner.simulator.draw_status_text.side_effect = lambda frame: frame
+
+        def update(data, *, camera, scene_option):
+            mujoco.mjv_updateScene(model, data, scene_option, None, camera,
+                                  mujoco.mjtCatBit.mjCAT_ALL, scene)
+
+        renderer.update_scene.side_effect = update
+        with tempfile.TemporaryDirectory() as directory:
+            with (patch('mujoco.Renderer', return_value=renderer),
+                  patch('imageio.v2.get_writer')):
+                with _video_recorder(runner, Path(directory) / 'tracking.mp4', 30, (64, 48),
+                                     model.body('pelvis').id, None) as capture:
+                    capture()
+                    camera = renderer.update_scene.call_args.kwargs['camera']
+                    self.assertEqual(camera.distance, 3.)
+                    self.assertEqual(camera.elevation, -15)
+                    initial_eye = np.mean([eye.pos.copy() for eye in scene.camera], axis=0)
+                    initial_target = camera.lookat.copy()
+                    for delta in ([.1, 0., 0.], [40., -30., 5.]):
+                        data.qpos[:3] = np.array([0., 0., 1.]) + delta
+                        runner.elapsed_time += .04
+                        capture()
+                        np.testing.assert_allclose(camera.lookat, initial_target + delta)
+                        eye = np.mean([eye.pos.copy() for eye in scene.camera], axis=0)
+                        np.testing.assert_allclose(eye, initial_eye + delta, atol=1e-5)
 
     @unittest.skipUnless(importlib.util.find_spec('imageio') and importlib.util.find_spec('imageio_ffmpeg'),
                          'Optional video dependencies are not installed')

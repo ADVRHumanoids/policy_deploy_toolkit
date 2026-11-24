@@ -160,9 +160,14 @@ class ApplyForce(Action):
 
 @dataclass(frozen=True, kw_only=True)
 class Respawn(Action):
-    """Instantaneous respawn at a world position and yaw in radians."""
+    """Respawn at position relative to a terrain spawn point, or the world.
 
-    position: tuple[float, float, float]
+    With terrain set, omitted position means zero offset from its saved spawn
+    point (which includes spawn_height). Offsets use world axes; yaw is radians.
+    """
+
+    position: tuple[float, float, float] | None = None
+    terrain: str | None = None
     yaw: float = 0.
     duration: float = field(default=0., init=False)
 
@@ -170,16 +175,30 @@ class Respawn(Action):
         super().__post_init__()
         if self.sub_actions:
             raise ValueError('Respawn cannot contain sub_actions')
-        object.__setattr__(self, 'position', _vector3(self.position, 'position'))
+        if self.position is None and self.terrain is None:
+            raise ValueError('Respawn requires position or terrain')
+        if self.position is not None:
+            object.__setattr__(self, 'position', _vector3(self.position, 'position'))
+        if self.terrain is not None and (not isinstance(self.terrain, str) or not self.terrain.strip()):
+            raise ValueError('terrain must be a nonempty terrain name')
         object.__setattr__(self, 'yaw', _finite(self.yaw, 'yaw'))
 
     def start(self, sim, remaining_duration):
-        sim.respawn(position=self.position,
+        position = self.position
+        if self.terrain is not None:
+            origin = sim.terrain_position(self.terrain)
+            offset = self.position if self.position is not None else (0., 0., 0.)
+            position = _vector3(tuple(base + delta for base, delta in zip(origin, offset)),
+                                'resolved position')
+        sim.respawn(position=position,
                     quaternion=[math.cos(self.yaw / 2), 0., 0., math.sin(self.yaw / 2)])
 
     @property
     def description(self):
-        return f'Respawn {self.position}, yaw={self.yaw:g} rad'
+        target = str(self.position)
+        if self.terrain is not None:
+            target = f'{self.terrain} + {self.position or (0., 0., 0.)}'
+        return f'Respawn {target}, yaw={self.yaw:g} rad'
 
 
 class ActionSequence:
