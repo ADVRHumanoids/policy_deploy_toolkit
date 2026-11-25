@@ -52,11 +52,13 @@ inline Eigen::Quaterniond quat_unique(Eigen::Quaterniond q)
     return q;
 }
 
-// Per arm: twist towards the target (v, w), goal position, goal quaternion wxyz with w >= 0.
-inline Eigen::Matrix<double, 13, 1> ee_command(const EePose& meas, const EePose& target, const EePose& goal, double dt)
+// Per arm: twist towards the target (v, w), goal position, goal quaternion wxyz with w >= 0
+// expressed relative to ref (EE orientation at the default joints): ref^-1 * goal.
+inline Eigen::Matrix<double, 13, 1> ee_command(const EePose& meas, const EePose& target, const EePose& goal,
+                                               const Eigen::Quaterniond& ref, double dt)
 {
     const Eigen::Quaterniond q_tgt = quat_unique(target.quat.normalized());
-    const Eigen::Quaterniond q_goal = quat_unique(goal.quat.normalized());
+    const Eigen::Quaterniond q_goal = quat_unique(ref.normalized().conjugate() * goal.quat.normalized());
     const Eigen::AngleAxisd err(quat_unique(q_tgt * meas.quat.conjugate()));
 
     Eigen::Matrix<double, 13, 1> c;

@@ -33,21 +33,32 @@ int main()
     const EePose meas = to_task_frame(Eigen::Matrix3d::Identity(), 0.57, b_T_ee);
     check(meas.pos.isApprox(Eigen::Vector3d(0.4, 0.2, 1.07)), "task frame position");
 
-    auto c = ee_command(meas, meas, meas, 0.02);
+    const Eigen::Quaterniond I = Eigen::Quaterniond::Identity();
+    auto c = ee_command(meas, meas, meas, I, 0.02);
     check(c.head<6>().norm() < 1e-12, "zero twist at the target");
 
     EePose flipped = meas;
     flipped.quat.coeffs() *= -1.0;
-    c = ee_command(flipped, meas, flipped, 0.02);
+    c = ee_command(flipped, meas, flipped, I, 0.02);
     check(c.head<6>().norm() < 1e-12, "zero twist across quaternion sign");
     check(c(9) >= 0.0, "goal quaternion w >= 0");
 
     EePose target = meas;
     target.pos.x() += 0.01;
     target.quat = Eigen::AngleAxisd(0.1, Eigen::Vector3d::UnitZ()) * meas.quat;
-    c = ee_command(meas, target, target, 0.02);
+    c = ee_command(meas, target, target, I, 0.02);
     check(c.segment<3>(0).isApprox(Eigen::Vector3d(0.5, 0.0, 0.0), 1e-9), "linear twist");
     check(c.segment<3>(3).isApprox(Eigen::Vector3d(0.0, 0.0, 5.0), 1e-9), "angular twist");
+
+    const Eigen::Quaterniond ref(Eigen::AngleAxisd(1.2, Eigen::Vector3d(0.3, -0.5, 0.8).normalized()));
+    EePose goal = meas;
+    goal.quat = ref;
+    c = ee_command(meas, meas, goal, ref, 0.02);
+    check(c.segment<4>(9).isApprox(Eigen::Vector4d(1.0, 0.0, 0.0, 0.0), 1e-9), "goal at ref -> identity");
+    goal.quat = ref * Eigen::Quaterniond(Eigen::AngleAxisd(0.3, Eigen::Vector3d::UnitX()));
+    c = ee_command(meas, meas, goal, ref, 0.02);
+    check(c.segment<4>(9).isApprox(Eigen::Vector4d(std::cos(0.15), std::sin(0.15), 0.0, 0.0), 1e-9), "goal relative to ref");
+    check(c.segment<3>(3).norm() < 1e-12, "twist unaffected by ref");
 
     std::printf(failures ? "ee_command_test: %d failure(s)\n" : "ee_command_test: ok\n", failures);
     return failures ? 1 : 0;

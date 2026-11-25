@@ -20,6 +20,10 @@ std::unique_ptr<ActionTerm> XBot::policy::ActionTerm::create(std::string func,
     {
         return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config);
     }
+    else if(func == "kyon_isaac.tasks.locomotion.fault_velocity.mdp.actions:FaultAwareJointPositionAction")
+    {
+        return std::make_unique<IsaacLabJointPositionActionTerm>(robot_info, policy_info, config, true);
+    }
     else if(func == "kyon_isaac.tasks.locomanipulation.ee_tracking.mdp.actions:CurrentOffsetJointPositionAction")
     {
         return std::make_unique<KyonIsaacCurrentOffsetJointPositionActionTerm>(robot_info, policy_info, config);
@@ -105,21 +109,35 @@ void ActionTerm::process(const Eigen::VectorXd &raw_action, const Inputs &inputs
 }
 
 IsaacLabJointPositionActionTerm::IsaacLabJointPositionActionTerm(RobotInfo robot_info, 
-    PolicyInfo policy_info, YAML::Node config):
-    ActionTerm(std::move(robot_info), std::move(policy_info), config)
+    PolicyInfo policy_info, YAML::Node config, bool fault_aware):
+    ActionTerm(std::move(robot_info), std::move(policy_info), config),
+    _fault_aware(fault_aware)
 {
     _size = _joint_ids.size();
     _offset = config["offset"].as<double>(0.0);
     _scale = config["scale"].as<double>(1.0);
     _alpha = config["alpha"].as<double>(1.0);
     _prev_raw_action = Eigen::VectorXd::Zero(_size);
+    _use_default_offset = config["use_default_offset"].as<bool>(true);
+    _raw_clip = 0.0;
+    if(auto n = config["raw_clip"]; _fault_aware && n && n.as<std::string>() != "null")
+    {
+        _raw_clip = n.as<double>();
+    }
 }
 
 void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &input_action, const Inputs &inputs, Outputs &outputs)
 {
     // EMA on the raw action: a_f = alpha * a + (1 - alpha) * a_prev
-    const Eigen::VectorXd raw_action = _alpha * input_action + (1.0 - _alpha) * _prev_raw_action;
+    Eigen::VectorXd raw_action = _alpha * input_action + (1.0 - _alpha) * _prev_raw_action;
     _prev_raw_action = input_action;
+
+    if(_raw_clip > 0.0)
+    {
+        raw_action = raw_action.cwiseMax(-_raw_clip).cwiseMin(_raw_clip);
+    }
+
+    const bool lock_limits = _fault_aware && inputs.q_des_min.size() > 0;
 
     for(std::size_t i = 0; i < _joint_ids.size(); ++i)
     {
@@ -131,8 +149,18 @@ void IsaacLabJointPositionActionTerm::process_impl(const Eigen::VectorXd &input_
                 "JointPositionAction references policy joint '" + _policy_info.joint_names[policy_id] + "' with no robot mapping");
         }
 
+        // isaaclab JointAction: the default pose replaces the offset when use_default_offset is set
+        float q_des = _fault_aware
+            ? raw_action(i) * _scale + (_use_default_offset ? _policy_info.joint_default_pos[policy_id] : _offset)
+            : raw_action(i) * _scale + _policy_info.joint_default_pos[policy_id] + _offset;
+
+        // clamp to the lock fault target window
+        if(lock_limits)
+        {
+            q_des = std::clamp(q_des, static_cast<float>(inputs.q_des_min(robot_id)), static_cast<float>(inputs.q_des_max(robot_id)));
+        }
+
         // clamp to joint position limits
-        float q_des = raw_action(i) * _scale + _policy_info.joint_default_pos[policy_id] + _offset;
         float q_des_clamped = std::clamp(q_des, 
             _robot_info.joint_pos_min(robot_id), 
             _robot_info.joint_pos_max(robot_id)
@@ -203,6 +231,10 @@ void KyonIsaacCurrentOffsetJointPositionActionTerm::process_impl(const Eigen::Ve
         q_des = std::clamp(q_des,
             static_cast<double>(_robot_info.joint_pos_min(robot_id)),
             static_cast<double>(_robot_info.joint_pos_max(robot_id)));
+
+        // step from the last sent target limited to joint_vel_max * control_dt
+        const double max_step = _robot_info.joint_vel_max(robot_id) * _policy_info.control_dt;
+        q_des = std::clamp(q_des, outputs.q_des(robot_id) - max_step, outputs.q_des(robot_id) + max_step);
 
         outputs.q_des(robot_id) = q_des;
         outputs.k_des(robot_id) = _policy_info.stiffness[policy_id];

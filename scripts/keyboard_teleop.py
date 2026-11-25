@@ -39,7 +39,7 @@ velocity (as teleop_twist_keyboard)
   q/z: speed and turn x1.1/x0.9   w/x: speed only   e/c: turn only
 posture   t/g: height +/-   y/h: pitch +/- (nose down/up)   b/n: roll -/+   p: nominal
 EE goal (task frame)   x -1 +2   y -3 +4   z -5 +6   roll -7 +8   pitch -9 +0   yaw -- +=
-  a: arm left/right/both   d: goals to home   f: print goal vs measured
+  a: arm left/right/both (mirrored: y, roll, yaw flipped on the right)   d: goals to home   f: print goal vs measured
 EE shapes: type ':' then a command and Enter (Esc cancels the line)
   :<small|medium|big> <yz|xz|xy> <circle|square|triangle> <left|right> [slow|fast|both]   e.g. :medium xz square right
   :stop"""
@@ -89,14 +89,46 @@ def nlerp(q0, q1, w):
     return q / np.linalg.norm(q)
 
 
-def shape_waypoint(shapes, entry, arm, t, speeds=None):
+def qrot(q, v):
+    """v rotated by the wxyz quaternion q."""
+    return qmul(qmul(q, np.r_[0.0, v]), qconj(q))[1:]
+
+
+# shoulder_yaw origin and axis in the pelvis frame, left and right (kyon_full.urdf)
+SHOULDER_POS = np.array([[0.28, 0.0998258, 0.203238], [0.28, -0.0998258, 0.203238]])
+SHOULDER_AXIS = np.array([[0.0, np.sin(0.3490656), np.cos(0.3490656)], [0.0, -np.sin(0.3490656), np.cos(0.3490656)]])
+
+
+def plane_project(pos, quat, arm, q_base, h):
+    """Rotates quat by the smallest angle that puts its z (approach) axis in the arm plane.
+
+    Arm plane: spanned by the shoulder yaw axis and the shoulder-to-pos vector; q_base is roll/pitch, h pelvis height.
+    """
+    p_s = qrot(q_base, SHOULDER_POS[arm]) + np.array([0.0, 0.0, h])
+    n = np.cross(qrot(q_base, SHOULDER_AXIS[arm]), pos - p_s)
+    z = qrot(quat, np.array([0.0, 0.0, 1.0]))
+    if np.linalg.norm(n) < 1e-6:
+        return quat
+    n /= np.linalg.norm(n)
+    zp = z - np.dot(z, n) * n
+    if np.linalg.norm(zp) < 1e-6:
+        return quat
+    axis = np.cross(z, zp / np.linalg.norm(zp))
+    s = np.linalg.norm(axis)
+    if s < 1e-12:
+        return quat
+    q = qmul(quat_from_rotvec(axis / s * np.arctan2(s, np.dot(z, zp / np.linalg.norm(zp)))), quat)
+    return q / np.linalg.norm(q)
+
+
+def shape_waypoint(shapes, entry, start, arm, t, speeds=None):
     """Waypoint (pos, quat wxyz) of the drawing arm at time t since the start, None once finished.
 
-    Hold at home, then per speed: min-jerk blend to the shape start, laps along the table, blend back to home.
+    Hold at the start pose, then per speed: min-jerk blend to the shape start, laps along the table, blend back.
     speeds [m/s] defaults to all the table speeds, in order.
     """
     timing = shapes['timing']
-    home_p, home_q = np.array(shapes['home']['pos'][arm]), np.array(shapes['home']['quat_wxyz'][arm])
+    home_p, home_q = start
     table = entry[('left', 'right')[arm]]
     pos, quat = np.array(table['pos']), np.array(table['quat_wxyz'])
     n, move, tl = len(pos), timing['move_s'], t - timing['hold_s']
@@ -152,23 +184,32 @@ def default_shapes_file():
 
 def check():
     """Timeline boundaries on a two-sample table."""
-    shapes = {'timing': {'hold_s': 2.0, 'move_s': 2.0, 'laps': 2, 'speeds_mps': [0.1, 0.25]},
-              'home': {'pos': [[0.0, 0.0, 1.0]] * 2, 'quat_wxyz': [[1.0, 0.0, 0.0, 0.0]] * 2}}
+    shapes = {'timing': {'hold_s': 2.0, 'move_s': 2.0, 'laps': 2, 'speeds_mps': [0.1, 0.25]}}
+    start = (np.array([0.0, 0.0, 1.0]), np.array([1.0, 0.0, 0.0, 0.0]))
     entry = {'perimeter_m': 0.4, 'left': {'pos': [[0.1, 0.0, 1.0], [0.0, 0.1, 1.0]], 'quat_wxyz': [[1.0, 0.0, 0.0, 0.0]] * 2}}
-    p, _ = shape_waypoint(shapes, entry, 0, 1.0)
-    assert np.allclose(p, [0.0, 0.0, 1.0]), 'hold at home'
-    p, _ = shape_waypoint(shapes, entry, 0, 3.0)
+    p, _ = shape_waypoint(shapes, entry, start, 0, 1.0)
+    assert np.allclose(p, [0.0, 0.0, 1.0]), 'hold at the start pose'
+    p, _ = shape_waypoint(shapes, entry, start, 0, 3.0)
     assert np.allclose(p, [0.05, 0.0, 1.0]), 'min-jerk blend midpoint'
-    p, _ = shape_waypoint(shapes, entry, 0, 4.0)
+    p, _ = shape_waypoint(shapes, entry, start, 0, 4.0)
     assert np.allclose(p, [0.1, 0.0, 1.0]), 'shape start after the blend'
-    p, _ = shape_waypoint(shapes, entry, 0, 5.0)
+    p, _ = shape_waypoint(shapes, entry, start, 0, 5.0)
     assert np.allclose(p, [0.05, 0.05, 1.0]), 'quarter lap at 0.1 m/s'
     total = 2.0 + sum(2 * 2.0 + 2 * 0.4 / v for v in (0.1, 0.25))
-    assert shape_waypoint(shapes, entry, 0, total - 1e-6) is not None, 'running until the end'
-    assert shape_waypoint(shapes, entry, 0, total + 1e-6) is None, 'finished'
+    assert shape_waypoint(shapes, entry, start, 0, total - 1e-6) is not None, 'running until the end'
+    assert shape_waypoint(shapes, entry, start, 0, total + 1e-6) is None, 'finished'
     slow_total = 2.0 + 2 * 2.0 + 2 * 0.4 / 0.1
-    assert shape_waypoint(shapes, entry, 0, slow_total - 1e-6, [0.1]) is not None, 'slow only: running'
-    assert shape_waypoint(shapes, entry, 0, slow_total + 1e-6, [0.1]) is None, 'slow only: finished'
+    assert shape_waypoint(shapes, entry, start, 0, slow_total - 1e-6, [0.1]) is not None, 'slow only: running'
+    assert shape_waypoint(shapes, entry, start, 0, slow_total + 1e-6, [0.1]) is None, 'slow only: finished'
+
+    q_base, h = quat_from_rotvec(np.array([0.0, 0.3, 0.0])), 0.56
+    pos = np.array([0.6, 0.35, 0.8])
+    q_out = quat_from_rotvec(np.array([0.4, -0.3, 0.7]))
+    p_s = qrot(q_base, SHOULDER_POS[0]) + np.array([0.0, 0.0, h])
+    n = np.cross(qrot(q_base, SHOULDER_AXIS[0]), pos - p_s)
+    q_in = plane_project(pos, q_out, 0, q_base, h)
+    assert abs(np.dot(qrot(q_in, np.array([0.0, 0.0, 1.0])), n)) < 1e-9, 'approach axis in the arm plane'
+    assert np.allclose(plane_project(pos, q_in, 0, q_base, h), q_in), 'in-plane orientation unchanged'
 
     options = {'size': ['small', 'big'], 'plane': ['xz'], 'shape': ['circle'], 'speed': ['slow', 'fast'],
                'arm': ['left', 'right']}
@@ -207,6 +248,8 @@ def main():
     ee_speed = param('ee_speed', 0.5)
     ee_ang_speed = param('ee_ang_speed', 1.5)
     shapes_file = param('shapes_file', '') or default_shapes_file()
+    # keep the EE approach axis in the plane reachable by the arm pitch joints
+    ee_plane = param('ee_plane', True)
 
     shapes = None
     if os.path.isfile(shapes_file):
@@ -221,20 +264,17 @@ def main():
         speed_values = {'slow': [speeds[0]], 'fast': [speeds[-1]], 'both': speeds}
         shape_options = {name: list(dict.fromkeys(e[name] for e in shapes['shapes'])) for name in ('size', 'plane', 'shape')}
         shape_options.update(speed=list(speed_values), arm=['left', 'right'])
-    # running shape: (table entry, arm index, speeds, start wall time), None when idle
+    # running shape: (table entry, arm index, speeds, start wall time, start goals), None when idle
     shape_run = None
     # typed command after ':', None in single-key mode
     line = None
-
-    def shapes_home():
-        return [(np.array(shapes['home']['pos'][i]), np.array(shapes['home']['quat_wxyz'][i])) for i in range(2)]
 
     def run_command(text):
         nonlocal shape_run, goal
         if text.strip() == 'stop':
             if shape_run is not None:
-                shape_run, goal = None, shapes_home()
-                print('[shape] stopped, goals to the shape home')
+                shape_run, goal = None, [(p.copy(), q.copy()) for p, q in target]
+                print('[shape] stopped, goals held at the current references')
             return
         if shapes is None or home is None:
             print('[shape] needs the shape tables and a measured EE pose')
@@ -249,7 +289,8 @@ def main():
                   f' <{"|".join(shape_options.get("shape", []))}> <left|right> [slow|fast|both]')
             return
         entry = next(e for e in shapes['shapes'] if all(e[k] == sel[k] for k in ('size', 'plane', 'shape')))
-        shape_run = (entry, ('left', 'right').index(sel['arm']), speed_values[sel['speed']], time.monotonic())
+        shape_run = (entry, ('left', 'right').index(sel['arm']), speed_values[sel['speed']], time.monotonic(),
+                     [(p.copy(), q.copy()) for p, q in goal])
         print(f'[shape] start: {sel["shape"]}, {sel["size"]} (r {entry["radius_m"]} m), plane {sel["plane"]},'
               f' speed {sel["speed"]}, {sel["arm"]} arm')
 
@@ -284,10 +325,12 @@ def main():
     def ee_nudge(axis, sign):
         for i in ((0, 1) if ee_arm == 2 else (ee_arm,)):
             pos, quat = goal[i]
+            # both: right arm mirrored about the sagittal plane (y, roll, yaw flipped)
+            s = -sign if ee_arm == 2 and i == 1 and axis in (1, 3, 5) else sign
             if axis < 3:
-                pos[axis] += sign * ee_step
+                pos[axis] += s * ee_step
             else:
-                goal[i] = (pos, qmul(quat_from_rotvec(sign * ee_angle_step * np.eye(3)[axis - 3]), quat))
+                goal[i] = (pos, qmul(quat_from_rotvec(s * ee_angle_step * np.eye(3)[axis - 3]), quat))
         print(f'[ee] {ARM_NAMES[ee_arm]} goal {AXIS_NAMES[axis]} {"+" if sign > 0 else "-"}')
 
     def ee_print():
@@ -379,10 +422,10 @@ def main():
             for pub in posture_pubs:
                 pub.publish(Float64MultiArray(data=posture))
             if shape_run is not None:
-                # waypoint for the next control step; the other arm holds the shape home
-                entry, arm, run_speeds, start = shape_run
-                wp = shape_waypoint(shapes, entry, arm, time.monotonic() - start + DT, run_speeds)
-                goal = shapes_home()
+                # waypoint for the next control step; the other arm holds its start goal
+                entry, arm, run_speeds, start, start_goal = shape_run
+                wp = shape_waypoint(shapes, entry, start_goal[arm], arm, time.monotonic() - start + DT, run_speeds)
+                goal = [(p.copy(), q.copy()) for p, q in start_goal]
                 if wp is None:
                     shape_run = None
                     print('[shape] done')
@@ -390,6 +433,13 @@ def main():
                     goal[arm] = wp
             if home is not None:
                 target = [step_towards(*target[i], *goal[i], ee_speed * DT, ee_ang_speed * DT) for i in range(2)]
+                if ee_plane:
+                    # base roll/pitch from the posture command, height measured
+                    q_base = qmul(quat_from_rotvec(np.array([0.0, posture[1], 0.0])),
+                                  quat_from_rotvec(np.array([posture[0], 0.0, 0.0])))
+                    h = ee['measured'][14]
+                    goal = [(p, plane_project(p, q, i, q_base, h)) for i, (p, q) in enumerate(goal)]
+                    target = [(p, plane_project(p, q, i, q_base, h)) for i, (p, q) in enumerate(target)]
                 ee_pub.publish(Float64MultiArray(data=np.concatenate(
                     [np.r_[target[i][0], target[i][1], goal[i][0], goal[i][1]] for i in range(2)]).tolist()))
     finally:

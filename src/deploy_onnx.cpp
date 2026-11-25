@@ -148,6 +148,13 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         auto config = pair.second;
         auto class_type = config["class_type"].as<std::string>();
 
+        // fault marker is an Isaac visualization-only command, read by no observation
+        if(class_type.ends_with(":FaultMarkerCommand"))
+        {
+            std::cout << "Command: " << name << " class: " << class_type << " skipped (visualization only)" << std::endl;
+            continue;
+        }
+
         auto command_term = CommandTerm::create(name, class_type, robot_info, policy_info, config);
         policy_info.command_size[name] = command_term->size();
         _command_specs.push_back(command_term->spec());
@@ -174,13 +181,16 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     // A CNN actor reads several groups: the 1D ones feed the flat "obs" input, each 2D one becomes
     // its own image input named after the group. deploy_export.py writes both lists; bundles without
     // them keep using default_obs_group above.
+    std::vector<std::string> obs_groups{obs_group};
     if(auto n1d = md["actor_obs_groups_1d"]; n1d && n1d.size() > 0)
     {
-        if(n1d.size() > 1)
+        // 1D groups are concatenated in listed order into the flat "obs" input
+        obs_groups = n1d.as<std::vector<std::string>>();
+        obs_group.clear();
+        for(const auto& g : obs_groups)
         {
-            throw std::runtime_error("Multiple 1D observation groups are not supported yet");
+            obs_group += (obs_group.empty() ? "" : "+") + g;
         }
-        obs_group = n1d[0].as<std::string>();
     }
 
     if(auto n2d = md["actor_obs_groups_2d"])
@@ -223,35 +233,42 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         }
     }
 
-    auto obs_cfg = md["observations"][obs_group];
     int obs_size = 0;
 
-    std::cout << std::format("Parsing observation group '{}' with {} terms\n", obs_group, obs_cfg.size());
-
-    for(auto pair : obs_cfg) {
-        
-        const auto name = pair.first.as<std::string>();
-        const auto config = pair.second["cfg"];
-
-        if(config.IsScalar())
+    for(const auto& group : obs_groups)
+    {
+        auto obs_cfg = md["observations"][group];
+        if(!obs_cfg)
         {
-            continue;
+            throw std::runtime_error("Observation group '" + group + "' not found in metadata");
         }
 
-        auto n_func = config["func"];
+        std::cout << std::format("Parsing observation group '{}' with {} terms\n", group, obs_cfg.size());
 
-        if(!n_func)
-        {
-            continue;
+        for(auto pair : obs_cfg) {
+
+            const auto name = pair.first.as<std::string>();
+            const auto config = pair.second["cfg"];
+
+            if(config.IsScalar())
+            {
+                continue;
+            }
+
+            auto n_func = config["func"];
+
+            if(!n_func)
+            {
+                continue;
+            }
+
+            auto func = n_func.as<std::string>();
+            auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
+            std::cout << "Observation: " << name << " func: " << func << " size: " << obs_term->size() << std::endl;
+
+            _obs_terms.push_back(std::move(obs_term));
+            obs_size += _obs_terms.back()->size();
         }
-
-        auto func = n_func.as<std::string>();
-        auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
-        std::cout << "Observation: " << name << " func: " << func << " size: " << obs_term->size() << std::endl;
-
-        _obs_terms.push_back(std::move(obs_term));
-        obs_size += _obs_terms.back()->size();
-
     }
 
     // Drop sensors no observation term reads. md["scene"] describes the whole training env, so a
@@ -275,7 +292,10 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
             }
         };
 
-        collect(obs_cfg);
+        for(const auto& group : obs_groups)
+        {
+            collect(md["observations"][group]);
+        }
 
         if(auto n2d = md["actor_obs_groups_2d"])
         {
@@ -319,6 +339,12 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
         {
             std::cout << "Action: " << name << " func: " << func << " skipped (driven by another policy)" << std::endl;
             continue;
+        }
+
+        // lock fault window = action scale, as set by the fault_velocity env
+        if(func.ends_with(":FaultAwareJointPositionAction"))
+        {
+            policy_info.lock_window = config["scale"].as<double>();
         }
 
         auto action_term = ActionTerm::create(func, robot_info, policy_info, config);

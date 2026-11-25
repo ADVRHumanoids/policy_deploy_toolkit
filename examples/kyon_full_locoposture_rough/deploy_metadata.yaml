@@ -1,8 +1,8 @@
 task: Isaac-Posture-Rough-KyonFull-PLAY-v0
-run: 2026-11-19_23-08-16_rough_movingarms_max3kghandpayload_tighttrack_scanrange8_12hz_scannoise05_penroll
-checkpoint: model_45750.pt
+run: 2026-11-19_00-59-12_rough_movingarms_max3kghandpayload_tighttrack_scanrange8_12hz_scannoise05_tanh
+checkpoint: model_39000.pt
 experiment: kyon_posture_rough
-exported_at: '2026-11-20T13:32:34'
+exported_at: '2026-11-20T16:00:28'
 joint_stiffness:
 - 350
 - 350

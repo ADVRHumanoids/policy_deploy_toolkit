@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <format>
 #include <iostream>
+#include <limits>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -142,8 +144,8 @@ public:
         const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::duration<double>(_policy->policyInfo().control_dt));
 
-        // simulated power loss: comma-separated "joint[:scale]" (scale = kept gain fraction, default 0),
-        // empty string clears the fault
+        // simulated actuator faults (kyon_isaac fault_velocity): comma-separated "joint:type:fcl",
+        // type scale | clip | lock, fcl in [0, 1] (1 nominal); empty string clears all faults
         _fault_sub = create_subscription<std_msgs::msg::String>(
             "~/fault_joints", rclcpp::QoS(1).reliable(),
             [this](const std_msgs::msg::String::SharedPtr msg) { fault_callback(msg->data); });
@@ -190,6 +192,28 @@ private:
             });
         _ee_measured_pub = create_publisher<std_msgs::msg::Float64MultiArray>("~/ee_measured", 10);
 
+        // EE orientation in base_link at the policy default joints, on a copy of the robot model
+        auto model = _robot->model().clone();
+        XBot::JointNameMap q_default;
+        const auto& info = _policy->policyInfo();
+        for(std::size_t i = 0; i < info.joint_names.size(); ++i)
+        {
+            if(_robot->getVIndexFromVName(info.joint_names[i]) >= 0)
+            {
+                q_default[info.joint_names[i]] = info.joint_default_pos[i];
+            }
+        }
+        model->setJointPositionMinimal(q_default);
+        model->update();
+        Eigen::Affine3d b_T_ee;
+        for(std::size_t arm = 0; arm < 2; ++arm)
+        {
+            model->getPose(_ee_frames[arm], "base_link", b_T_ee);
+            _ee_ref_quat[arm] = Eigen::Quaterniond(b_T_ee.linear()).normalized();
+            RCLCPP_INFO(get_logger(), "EE ref quat %s (wxyz): %.4f %.4f %.4f %.4f", _ee_frames[arm].c_str(),
+                        _ee_ref_quat[arm].w(), _ee_ref_quat[arm].x(), _ee_ref_quat[arm].y(), _ee_ref_quat[arm].z());
+        }
+
         RCLCPP_INFO(get_logger(), "EE command '%s': reference on '%s', EE frames %s/%s, foot contact height %.3f m",
                     name.c_str(), _ee_reference_sub->get_topic_name(),
                     _ee_frames[0].c_str(), _ee_frames[1].c_str(), _foot_contact_height);
@@ -234,7 +258,7 @@ private:
         for(std::size_t arm = 0; arm < 2; ++arm)
         {
             command.segment<13>(13 * arm) = XBot::policy::ee_command(
-                meas[arm], _ee_target[arm], _ee_goal[arm], _policy->policyInfo().control_dt);
+                meas[arm], _ee_target[arm], _ee_goal[arm], _ee_ref_quat[arm], _policy->policyInfo().control_dt);
             const auto& q = meas[arm].quat;
             msg.data.insert(msg.data.end(), {meas[arm].pos.x(), meas[arm].pos.y(), meas[arm].pos.z(),
                                              q.w(), q.x(), q.y(), q.z()});
@@ -266,7 +290,8 @@ private:
 
     void fault_callback(const std::string& data)
     {
-        _faults.clear();
+        const auto& info = _policy->policyInfo();
+        std::map<int, Fault> faults;
         std::stringstream ss(data);
         std::string item;
         while(std::getline(ss, item, ','))
@@ -276,41 +301,102 @@ private:
             {
                 continue;
             }
-            const auto sep = item.find(':');
-            const std::string name = item.substr(0, sep);
-            double scale = 0.0;
-            if(sep != std::string::npos)
+
+            std::vector<std::string> fields;
+            std::stringstream is(item);
+            for(std::string tok; std::getline(is, tok, ':');)
             {
-                try
-                {
-                    scale = std::clamp(std::stod(item.substr(sep + 1)), 0.0, 1.0);
-                }
-                catch(const std::exception&)
-                {
-                    RCLCPP_WARN(get_logger(), "fault: bad scale in '%s', ignored", item.c_str());
-                    continue;
-                }
+                fields.push_back(tok);
             }
-            int vid = _robot->getVIndexFromVName(name);
-            if(vid < 0)
+            if(fields.size() != 3)
             {
-                RCLCPP_WARN(get_logger(), "fault: unknown joint '%s', ignored", name.c_str());
+                RCLCPP_WARN(get_logger(), "fault: '%s' is not joint:type:fcl, ignored", item.c_str());
                 continue;
             }
-            _faults.emplace_back(vid, scale);
+
+            const int vid = _robot->getVIndexFromVName(fields[0]);
+            const int pid = vid < 0 ? -1 : info.joint_id_robot_to_policy[vid];
+            if(pid < 0)
+            {
+                RCLCPP_WARN(get_logger(), "fault: '%s' is not a policy joint, ignored", fields[0].c_str());
+                continue;
+            }
+
+            Fault f;
+            if(fields[1] == "scale") f.type = FaultType::Scale;
+            else if(fields[1] == "clip") f.type = FaultType::Clip;
+            else if(fields[1] == "lock") f.type = FaultType::Lock;
+            else
+            {
+                RCLCPP_WARN(get_logger(), "fault: unknown type '%s' (scale | clip | lock), ignored", fields[1].c_str());
+                continue;
+            }
+
+            try
+            {
+                f.fcl = std::clamp(std::stod(fields[2]), 0.0, 1.0);
+            }
+            catch(const std::exception&)
+            {
+                RCLCPP_WARN(get_logger(), "fault: bad fcl in '%s', ignored", item.c_str());
+                continue;
+            }
+
+            if(f.type == FaultType::Clip)
+            {
+                RCLCPP_WARN(get_logger(), "fault: clip on '%s' is applied by the simulator actuator model only (MuJoCo tanh_transmission)",
+                            fields[0].c_str());
+            }
+
+            if(f.type == FaultType::Lock)
+            {
+                if(info.lock_window <= 0.0 || _inputs.q.size() == 0)
+                {
+                    RCLCPP_WARN(get_logger(), "fault: lock needs a FaultAwareJointPositionAction policy and a sensed state, ignored");
+                    continue;
+                }
+                // lock position = joint position when the lock first appears
+                const auto it = _faults.find(vid);
+                f.lock_pos = (it != _faults.end() && it->second.type == FaultType::Lock) ? it->second.lock_pos : _inputs.q(vid);
+            }
+
+            faults[vid] = f;
         }
+        _faults = std::move(faults);
+
+        // lock: target window lock_pos +- lock_window * fcl, read by the fault-aware action term
+        _inputs.q_des_min.resize(0);
+        _inputs.q_des_max.resize(0);
+        for(const auto& [vid, f] : _faults)
+        {
+            if(f.type != FaultType::Lock)
+            {
+                continue;
+            }
+            if(_inputs.q_des_min.size() == 0)
+            {
+                _inputs.q_des_min.setConstant(_robot->getNv(), -std::numeric_limits<double>::infinity());
+                _inputs.q_des_max.setConstant(_robot->getNv(), std::numeric_limits<double>::infinity());
+            }
+            _inputs.q_des_min(vid) = f.lock_pos - info.lock_window * f.fcl;
+            _inputs.q_des_max(vid) = f.lock_pos + info.lock_window * f.fcl;
+        }
+
         _fault_changed = true;
-        RCLCPP_WARN(get_logger(), "fault: power loss on %zu joint(s) [%s]", _faults.size(), data.c_str());
+        RCLCPP_WARN(get_logger(), "fault: %zu joint(s) faulted [%s]", _faults.size(), data.c_str());
     }
 
+    // scale faults: Kp/Kd x fcl (lock acts in the action term, clip in the simulator)
     void apply_fault(XBot::policy::Outputs& outputs)
     {
-        for(const auto& [vid, scale] : _faults)
+        for(const auto& [vid, f] : _faults)
         {
-            outputs.k_des(vid) *= scale;
-            outputs.d_des(vid) *= scale;
-            outputs.tau_des(vid) *= scale;
-            outputs.ctrl_mode(vid) |= (8 + 16); // stiffness + damping
+            if(f.type == FaultType::Scale)
+            {
+                outputs.k_des(vid) *= f.fcl;
+                outputs.d_des(vid) *= f.fcl;
+                outputs.ctrl_mode(vid) |= (8 + 16); // stiffness + damping
+            }
         }
     }
 
@@ -466,7 +552,14 @@ private:
     Eigen::VectorXd _vec_nq;
     Eigen::Matrix<uint8_t, Eigen::Dynamic, 1> _vec_nj;
     std::chrono::steady_clock::time_point _loop_start;
-    std::vector<std::pair<int, double>> _faults; // (v index, kept gain fraction)
+    enum class FaultType { Scale, Clip, Lock };
+    struct Fault
+    {
+        FaultType type{FaultType::Scale};
+        double fcl{1.0};
+        double lock_pos{0.0};
+    };
+    std::map<int, Fault> _faults; // keyed by v index
     bool _fault_changed{false};
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _fault_sub;
     Eigen::Matrix3d _base_R_imu{Eigen::Matrix3d::Identity()};
@@ -478,6 +571,7 @@ private:
     std::unique_ptr<tf2_ros::TransformBroadcaster> _tf_broadcaster;
     std::array<XBot::policy::EePose, 2> _ee_target;
     std::array<XBot::policy::EePose, 2> _ee_goal;
+    std::array<Eigen::Quaterniond, 2> _ee_ref_quat{Eigen::Quaterniond::Identity(), Eigen::Quaterniond::Identity()};
     bool _ee_has_reference{false};
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr _ee_reference_sub;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr _ee_measured_pub;

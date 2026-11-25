@@ -26,6 +26,8 @@ struct PolicyInfo {
     std::map<std::string, int> command_size;
     int action_size;
     int height_scan_size;
+    // half-width of the lock fault target window at fcl = 1 (FaultAwareJointPositionAction scale)
+    double lock_window = 0.0;
 };
 
 struct Inputs {
@@ -44,6 +46,10 @@ struct Inputs {
     Eigen::VectorXd tau_ref;
     Eigen::VectorXd k;
     Eigen::VectorXd d;
+
+    // per robot joint position target limits set by the lock fault; empty = unlimited
+    Eigen::VectorXd q_des_min;
+    Eigen::VectorXd q_des_max;
 
     Eigen::Quaterniond w_R_imu;
     Eigen::Vector3d imu_omega;

@@ -47,9 +47,11 @@ class IsaacLabJointPositionActionTerm : public ActionTerm
 {
 public:
 
-    IsaacLabJointPositionActionTerm(RobotInfo robot_info, 
+    // fault_aware: kyon_isaac FaultAwareJointPositionAction (raw_clip, isaaclab offset, lock target limits)
+    IsaacLabJointPositionActionTerm(RobotInfo robot_info,
                                     PolicyInfo policy_info,
-                                    YAML::Node config);
+                                    YAML::Node config,
+                                    bool fault_aware = false);
 
     void process_impl(const Eigen::VectorXd& raw_action, const Inputs& inputs, Outputs& outputs) override;
 
@@ -59,6 +61,9 @@ private:
     double _scale;
     double _alpha;
     Eigen::VectorXd _prev_raw_action;
+    bool _fault_aware;
+    bool _use_default_offset;
+    double _raw_clip; // <= 0: no clip
 
 };
 
@@ -79,7 +84,8 @@ private:
     
 };
 
-// q_target = q_measured + clamp(a / sigma_a, -1, 1), q_measured read at the policy step
+// q_target = q_measured + clamp(a / sigma_a, -1, 1), q_measured read at the policy step,
+// then limited to q_target_prev +- joint_vel_max * control_dt
 class KyonIsaacCurrentOffsetJointPositionActionTerm : public ActionTerm
 {
 public:

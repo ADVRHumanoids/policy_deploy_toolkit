@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Toggle simulated joint power loss from the keyboard (see deploy node ~/fault_joints)."""
+"""Toggle simulated actuator faults from the keyboard (see deploy node ~/fault_joints)."""
 import select
 import sys
 import termios
@@ -14,13 +14,16 @@ KEYMAP = {
     'q': 'hip_pitch_1', 'w': 'hip_pitch_2', 'e': 'hip_pitch_3', 'r': 'hip_pitch_4',
     'a': 'knee_pitch_1', 's': 'knee_pitch_2', 'd': 'knee_pitch_3', 'f': 'knee_pitch_4',
 }
+# kyon_isaac fault_velocity types: Kp/Kd x fcl, effort limit x fcl, target window lock_pos +- scale * fcl
+TYPEMAP = {'z': 'scale', 'x': 'clip', 'c': 'lock'}
 
-HELP = """fault keyboard: key toggles power loss on joint
+HELP = """fault keyboard: key toggles a fault on joint (with the current type)
          leg1 leg2 leg3 leg4
   roll    1    2    3    4
   pitch   q    w    e    r
   knee    a    s    d    f
-  +/-: fault level +-10% (100% = full power loss)
+  z/x/c: type scale / clip / lock for the next toggled joints
+  +/-: fcl +-0.05 on all faulted joints (1 = nominal, 0 = complete fault)
   space: clear all   esc/ctrl-c: quit"""
 
 
@@ -28,8 +31,9 @@ def main():
     rclpy.init()
     node = rclpy.create_node('fault_keyboard')
     pub = node.create_publisher(String, '/policy_deploy_node/fault_joints', 1)
-    faulted = set()
-    level = 100  # % of gain removed, shared by all faulted joints
+    faulted = {}  # joint -> type
+    ftype = 'scale'
+    fcl = 0.0
 
     old = termios.tcgetattr(sys.stdin)
     tty.setcbreak(sys.stdin)
@@ -44,16 +48,19 @@ def main():
             if key == ' ':
                 faulted.clear()
             elif key in KEYMAP:
-                faulted ^= {KEYMAP[key]}
+                j = KEYMAP[key]
+                if faulted.pop(j, None) is None:
+                    faulted[j] = ftype
+            elif key in TYPEMAP:
+                ftype = TYPEMAP[key]
             elif key in '+=':
-                level = min(level + 10, 100)
+                fcl = min(round(fcl + 0.05, 2), 1.0)
             elif key in '-_':
-                level = max(level - 10, 0)
+                fcl = max(round(fcl - 0.05, 2), 0.0)
             else:
                 continue
-            scale = 1.0 - level / 100.0
-            pub.publish(String(data=','.join(f'{j}:{scale:.2f}' for j in sorted(faulted))))
-            print(f"level {level}%  faulted: {sorted(faulted) or 'none'}")
+            pub.publish(String(data=','.join(f'{j}:{t}:{fcl:.2f}' for j, t in sorted(faulted.items()))))
+            print(f"type {ftype}  fcl {fcl:.2f}  faulted: {dict(sorted(faulted.items())) or 'none'}")
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
         pub.publish(String(data=''))
