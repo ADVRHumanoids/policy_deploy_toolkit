@@ -1,6 +1,7 @@
 """Exercise NumPy conversion, callbacks, and inference with a bundled policy."""
 from pathlib import Path
 import sys
+import tempfile
 
 import numpy as np
 
@@ -66,3 +67,56 @@ for step in range(2):
     assert np.all(np.isfinite(outputs.raw_observation))
     assert np.all(np.isfinite(outputs.raw_action))
     inputs.last_action = outputs.raw_action.copy()
+
+# Split the actor's observations into two groups while preserving the model's
+# input layout. Declare the groups in reverse order to check metadata list order.
+original_metadata = metadata.read_text()
+policy_start = original_metadata.index("  policy:\n", original_metadata.index("\nobservations:\n"))
+policy_end = original_metadata.index("  critic:\n", policy_start)
+policy_terms = original_metadata[policy_start + len("  policy:\n"):policy_end]
+split = policy_terms.index("    velocity_commands:\n")
+split_metadata = (
+    original_metadata[:policy_start]
+    + "  actor_suffix:\n" + policy_terms[split:]
+    + "  actor_prefix:\n" + policy_terms[:split]
+    + original_metadata[policy_start:]
+)
+
+inputs.step = 0
+inputs.time_sec = 0.0
+inputs.last_action = np.zeros(info.action_size)
+
+with tempfile.TemporaryDirectory() as directory:
+    candidate = Path(directory) / "deploy_metadata.yaml"
+
+    def observe(text, override=""):
+        candidate.write_text(text)
+        selected = pdt.OnnxPolicy(str(example / "policy.onnx"), str(candidate), override, robot)
+        result = pdt.Outputs(info.action_size, n)
+        assert selected.run(inputs, result)
+        return result.raw_observation.copy()
+
+    baseline = observe(original_metadata)
+    # New metadata takes precedence over the legacy default group.
+    agent_metadata = (
+        split_metadata
+        + "\ndefault_obs_group: critic\n"
+        + "agent:\n  obs_groups:\n    policy: [actor_prefix, actor_suffix]\n"
+    )
+    np.testing.assert_allclose(observe(agent_metadata), baseline)
+    np.testing.assert_allclose(observe(agent_metadata, "policy"), baseline)
+    np.testing.assert_allclose(
+        observe(original_metadata + "\ndefault_obs_group: policy\n"), baseline
+    )
+
+    for selection, message in (("[]", "non-empty list"), ("policy", "non-empty list"),
+                               ("[missing]", "Missing or invalid observation group")):
+        invalid_metadata = original_metadata + f"\nagent:\n  obs_groups:\n    policy: {selection}\n"
+        try:
+            observe(invalid_metadata)
+        except RuntimeError as error:
+            assert message in str(error), error
+        else:
+            raise AssertionError(f"Invalid observation selection accepted: {selection}")
+        # An explicit override bypasses the actor defaults, even if malformed.
+        np.testing.assert_allclose(observe(invalid_metadata, "policy"), baseline)

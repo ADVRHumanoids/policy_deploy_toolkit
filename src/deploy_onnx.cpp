@@ -1,5 +1,6 @@
 #include "deploy_onnx.h"
 #include "actuator_gains.h"
+#include "observation_groups.h"
 
 #include <algorithm>
 #include <cmath>
@@ -104,87 +105,90 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     }
 
     // parse observation configs
-    std::string obs_group = "policy";
-    
-    if(auto n = md["default_obs_group"])
-    {
-        obs_group = n.as<std::string>();
-    }
-
-    if(!obs_group_override.empty())
-    {
-        obs_group = obs_group_override;
-    }
-
-    auto obs_cfg = md["observations"][obs_group];
+    const auto obs_groups = actor_observation_groups(md, obs_group_override);
     int obs_size = 0;
+    std::string obs_group_names;
 
-    std::cout << std::format("Parsing observation group '{}' with {} terms\n", obs_group, obs_cfg.size());
-
-    for(auto pair : obs_cfg) {
-        
-        const auto name = pair.first.as<std::string>();
-        const auto config = pair.second["cfg"];
-
-        if(config.IsScalar())
+    for(const auto& obs_group : obs_groups)
+    {
+        if(!obs_group_names.empty())
         {
-            continue;
+            obs_group_names += ", ";
+        }
+        obs_group_names += obs_group;
+        const auto obs_cfg = md["observations"][obs_group];
+        if(!obs_cfg || !obs_cfg.IsMap())
+        {
+            throw std::runtime_error("Missing or invalid observation group '" + obs_group + "'");
         }
 
-        auto n_func = config["func"];
+        std::cout << std::format("Parsing observation group '{}' with {} terms\n", obs_group, obs_cfg.size());
 
-        if(!n_func)
-        {
-            continue;
-        }
-
-        auto func = n_func.as<std::string>();
+        for(auto pair : obs_cfg) {
         
-        // Check if sensor is required for the observation term
-        auto params = config["params"];
-        if(params && params["sensor_cfg"])
-        {
-            // parse scene to get height scan size
-            policy_info.height_scan_size = 0;
-            if(auto scene = md["scene"]; scene && scene.IsMap())
+            const auto name = pair.first.as<std::string>();
+            const auto config = pair.second["cfg"];
+
+            if(config.IsScalar())
             {
-                for(auto pair : scene)
+                continue;
+            }
+
+            auto n_func = config["func"];
+
+            if(!n_func)
+            {
+                continue;
+            }
+
+            auto func = n_func.as<std::string>();
+        
+            // Check if sensor is required for the observation term
+            auto params = config["params"];
+            if(params && params["sensor_cfg"])
+            {
+                // parse scene to get height scan size
+                policy_info.height_scan_size = 0;
+                if(auto scene = md["scene"]; scene && scene.IsMap())
                 {
-                    auto name = pair.first.as<std::string>();
-                    auto config = pair.second;
-                    if(!config.IsMap() || !config["class_type"])
+                    for(auto pair : scene)
                     {
-                        continue;
-                    }
+                        auto name = pair.first.as<std::string>();
+                        auto config = pair.second;
+                        if(!config.IsMap() || !config["class_type"])
+                        {
+                            continue;
+                        }
 
-                    auto class_type = config["class_type"].as<std::string>();
+                        auto class_type = config["class_type"].as<std::string>();
 
-                    if(class_type == "kyon_isaac.sensors.ray_caster:KyonRayCaster")
-                    {
-                        const double pattern_resolution = config["pattern_cfg"]["resolution"].as<double>();
-                        auto pattern_size = config["pattern_cfg"]["size"].as<std::pair<double, double>>();
+                        if(class_type == "kyon_isaac.sensors.ray_caster:KyonRayCaster")
+                        {
+                            const double pattern_resolution = config["pattern_cfg"]["resolution"].as<double>();
+                            auto pattern_size = config["pattern_cfg"]["size"].as<std::pair<double, double>>();
 
-                        policy_info.height_scan_size = (static_cast<int>(std::round(pattern_size.first / pattern_resolution)) + 1) *
-                                                        (static_cast<int>(std::round(pattern_size.second / pattern_resolution)) + 1);
+                            policy_info.height_scan_size = (static_cast<int>(std::round(pattern_size.first / pattern_resolution)) + 1) *
+                                                            (static_cast<int>(std::round(pattern_size.second / pattern_resolution)) + 1);
 
-                        _sensor_specs.push_back(HeightScanSpec{name, class_type, policy_info.height_scan_size});
+                            _sensor_specs.push_back(HeightScanSpec{name, class_type, policy_info.height_scan_size});
 
-                        std::cout << std::format("[HeightScan] '{}' class: {} size: {}\n", name, class_type, policy_info.height_scan_size);
+                            std::cout << std::format("[HeightScan] '{}' class: {} size: {}\n", name, class_type, policy_info.height_scan_size);
+                        }
                     }
                 }
             }
+
+            // Sensor dimensions must be known before constructing observation terms.
+            auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
+            std::cout << "Observation: " << name << " func: " << func
+                      << " size: " << obs_term->size()
+                      << " indices: " << obs_size << ":" << obs_size + obs_term->size()
+                      << std::endl;
+            _observation_specs.push_back({name, obs_size, obs_term->size()});
+            _obs_terms.push_back(std::move(obs_term));
+            obs_size += _obs_terms.back()->size();
+
         }
-
-        // Sensor dimensions must be known before constructing observation terms.
-        auto obs_term = ObsTerm::create(func, robot_info, policy_info, config);
-        std::cout << "Observation: " << name << " func: " << func
-                  << " size: " << obs_term->size()
-                  << " indices: " << obs_size << ":" << obs_size + obs_term->size()
-                  << std::endl;
-        _observation_specs.push_back({name, obs_size, obs_term->size()});
-        _obs_terms.push_back(std::move(obs_term));
-        obs_size += _obs_terms.back()->size();
-
     }
 
     if(obs_size != _input_tensors[_obs_input_index].buffer.size())
@@ -217,7 +221,7 @@ OnnxPolicy::OnnxPolicy(std::string model_path,
     }
 
     std::cout << std::format("ctrl_dt: {} action_size: {} obs_size: {} (group: {}) \n", 
-        policy_info.control_dt, action_size, obs_size, obs_group) << std::endl;
+        policy_info.control_dt, action_size, obs_size, obs_group_names) << std::endl;
 
     _policy_info = std::move(policy_info);
 }

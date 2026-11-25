@@ -144,14 +144,19 @@ timer overhead, especially for small physics steps.
 
 In viewer mode, `--target-rtf 2` runs at twice real time; `--video` also enables
 recording. Repeat `--command NAME=V1,V2,...` to override commands.
-Use `--track-body base_link` to make both the viewer and video cameras follow a named body.
+Use `--track-body base_link` to make both the viewer and video cameras follow a named body
+with a low viewing angle (−15° elevation).
 Set `--camera-distance 2.5` to place either camera 2.5 meters from its target;
-omitting it preserves MuJoCo's default distance.
+omitting it uses 3 meters with `--track-body`, or MuJoCo's scene default otherwise.
 Use `--geom-group-blacklist 0 2` to hide geometry groups in both the viewer and
 video. Groups range from 0 to 5; the option can be repeated. This only controls
 visibility, leaving collisions and terrain scanning unchanged.
-Commands pass through the policy's sanitization. `--obs-group` overrides the
-metadata's observation group. `MujocoPolicyRunner` in the `simulate` module
+Commands pass through the policy's sanitization. Actor observations default to
+the groups listed in deploy metadata's `agent.obs_groups.policy`, concatenated
+in list order. `--obs-group` (or the ROS `obs_group_override` parameter, exposed
+as `actor_obs_group` by the example launch file) selects a single group instead.
+Older metadata falls back to `default_obs_group`, then `policy`.
+`MujocoPolicyRunner` in the `simulate` module
 also exposes `step()` for one control period and its `model`, `data`, `inputs`,
 and `outputs` for Python experiments.
 
@@ -215,6 +220,20 @@ position and yaw in radians, and clears disturbances through the simulator's
 normal reset path. Action durations and offsets are finite, non-negative seconds;
 velocity and force actions require positive durations.
 
+Use `Respawn(terrain='terrain_r0_c0_stairs', position=[0.5, 0.0, 0.1], yaw=0.0)`
+to respawn at an offset from a generated terrain tile's saved spawn point.
+Offsets use world axes and are added to all three coordinates, including the
+saved height (which already includes `spawn_height`). Omitting `position` with
+a terrain selects its saved spawn point exactly. Without `terrain`, `position`
+is an absolute world position. Yaw remains a world yaw. Names come from the `spawn_locations`
+map in `spawn_locations.yaml`, loaded beside the MJCF by default; use
+`--spawn-file /path/to/spawn_locations.yaml` to override it. Positions already
+include the generator's `spawn_height`. Deterministic terrain names are
+`{sub_terrain_name}_{rowid}`, such as `open_stairs_0`, with a zero-based difficulty
+row index (column index when types occupy rows). Other layouts use
+`terrain_r{row}_c{column}_{sub_terrain_name}`. Regenerate older terrains to obtain
+named maps. Missing names and invalid positions raise an error before respawning.
+
 `ActionSequence` uses session `elapsed_time`, so respawning does not restart the
 timeline. Effects start on the next policy callback at or after their scheduled
 time; late force starts use only the remaining duration. Fully missed timed
@@ -235,7 +254,9 @@ text are included from the first recorded frame.
 The example stops when its sequence ends. `--duration` remains an optional upper
 limit, and can truncate the sequence. The old periodic `--reset-every` logic is
 replaced by explicit `Respawn` actions. `--speed`, `--force-body` (defaulting to
-`--base-body`), and `--respawn-position` customize the example. Subclass library
+`--base-body`), and `--respawn-position` customize the example. Use
+`--respawn-terrain terrain_r0_c0_stairs` to select a named terrain instead.
+Subclass library
 `Action` and override `start(sim, remaining_duration)` to define more actions;
 it may return a cleanup callback to run when that action finishes.
 
