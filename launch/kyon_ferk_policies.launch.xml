@@ -1,0 +1,54 @@
+<launch>
+      <!-- The four kyon_ferk policies (4-leg walking, stand-up, 2-leg walking, get-down) on Kyon through XBot2,
+           in the style of policy_deploy_toolkit's run_example.launch.xml. Start XBot2 (and MuJoCo in simulation)
+           first, with the robot standing in ferk and no homing plugin.
+
+           policy:=all (default)   all four through scripts/policy_switcher.py, which switches between them
+                                   live (no gap in control). Switch by publishing once on /policy_switcher/select a
+                                   std_msgs/msg/String with the policy name (ferk4 | standup | biped | getdown |
+                                   release, or 1..4 / 0; see the README), or with the number
+                                   keys of scripts/arrow_teleop.py; the active one is on /policy_switcher/active.
+           policy:=ferk4 | standup | biped | getdown
+                                   only that one, with the lab's policy_deploy_node (as run_example.launch.xml).
+           Velocity commands for both: geometry_msgs/Twist on /policy_deploy_node/commands/base_velocity
+           (arrow_teleop.py, joystick with enable_joy:=true, or the lab's GUI).
+
+           policies_dir: the folder with the four unzipped release folders (kyon_ferk_policies.zip of the kyon_isaac
+           pre-release antoplg-kyon-ferk-policies-v1), default $KYON_FERK_POLICIES_DIR or ~/kyon_ferk_policies.
+
+           ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml [policy:=all] [policies_dir:=...] -->
+
+      <arg name="policy" default="all" />
+      <arg name="policies_dir" default="$(env KYON_FERK_POLICIES_DIR $(env HOME)/kyon_ferk_policies)" />
+      <arg name="start" default="" />  <!-- policy:=all only: policy to start right away (default: wait) -->
+      <arg name="use_sim_time" default="false" />
+      <arg name="enable_joy" default="false" />
+
+      <let name="all" value="$(eval &quot;'$(var policy)' == 'all'&quot;)" />
+      <let name="folder"
+           value="$(eval &quot;{'ferk4': 'kyon_ferk_locomotion_flat', 'standup': 'kyon_ferk_standup', 'biped': 'kyon_ferk_biped_locomotion_flat', 'getdown': 'kyon_ferk_getdown'}.get('$(var policy)', 'all')&quot;)" />
+
+      <!-- all four: live switcher (policy_deploy_toolkit Python bindings, see policy_switcher.py) -->
+      <node pkg="policy_deploy_toolkit" exec="policy_switcher.py" output="screen" if="$(var all)"
+            args="--ros_input --policies_dir $(var policies_dir) --start=$(var start)">
+            <env name="PYTHONUNBUFFERED" value="1" />
+      </node>
+
+      <!-- one policy: the lab's node, as run_example.launch.xml -->
+      <node pkg="policy_deploy_toolkit" exec="deploy_policy_node" output="screen" unless="$(var all)"
+            args="$(var policies_dir)/$(var folder)/policy.onnx $(var policies_dir)/$(var folder)/deploy_metadata.yaml">
+            <param name="use_sim_time" value="$(var use_sim_time)" />
+      </node>
+
+      <node pkg="joy" exec="joy_node" output="screen" if="$(var enable_joy)" />
+      <node pkg="teleop_twist_joy" exec="teleop_node" output="screen" if="$(var enable_joy)">
+            <remap from="/cmd_vel" to="/policy_deploy_node/commands/base_velocity" />
+            <param name="axis_linear.x" value="1" />
+            <param name="axis_linear.y" value="0" />
+            <param name="axis_angular.yaw" value="3" />
+            <param name="scale_linear.x" value="0.5" />
+            <param name="scale_linear.y" value="0.3" />
+            <param name="scale_angular.yaw" value="0.5" />
+      </node>
+
+</launch>

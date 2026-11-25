@@ -196,6 +196,11 @@ if(BUILD_ROS_NODE)
         DESTINATION share/${PROJECT_NAME}/launch
     )
 
+    # install scripts (ros2 run policy_deploy_toolkit <script>)
+    install(PROGRAMS scripts/policy_switcher.py scripts/arrow_teleop.py
+        DESTINATION lib/${PROJECT_NAME}
+    )
+
     if(BUILD_TESTING)
         add_executable(ros_policy_term_publisher_test test/ros_policy_term_publisher_test.cpp)
         target_include_directories(ros_policy_term_publisher_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

@@ -415,6 +415,27 @@ slices of the raw model output, before action processing. Ordering within each
 term matches its slice in the combined vector. Only the selected observation
 group is published; the combined topics remain available.
 
+## Several policies, switched live (kyon ferk policies)
+
+`policy_deploy_node` runs one policy per process: switching means stopping one node and starting another, and
+meanwhile XBot2 only holds the last references (a robot balancing upright falls). `scripts/policy_switcher.py`
+loads several policies and runs the selected one every control period through XBot2's Python `RobotInterface`,
+with this package's Python bindings (same observations, actions and gains as `policy_deploy_node`), switching
+between two control periods. Joints a policy does not act on are held at its default pose with its gains.
+It needs the Python bindings (`BUILD_PYTHON_BINDINGS=ON`, or a separate build given with
+`POLICY_DEPLOY_TOOLKIT_PYTHONPATH`).
+
+```bash
+ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml policies_dir:=<dir>   # all four, switchable
+ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml policy:=standup policies_dir:=<dir>   # one, with policy_deploy_node
+ros2 run policy_deploy_toolkit arrow_teleop.py    # arrows: velocity; 1..4: switch policy; 0: release
+```
+
+`<dir>` holds the policy folders (`policy.onnx`, `deploy_metadata.yaml`) `kyon_ferk_locomotion_flat`,
+`kyon_ferk_standup`, `kyon_ferk_biped_locomotion_flat`, `kyon_ferk_getdown` (pre-release
+`antoplg-kyon-ferk-policies-v1` of `kyon_isaac`). Switch with `std_msgs/String` on `/policy_switcher/select`
+(`ferk4`, `standup`, `biped`, `getdown`, `release`); velocity commands on `/policy_deploy_node/commands/base_velocity`.
+
 ## Omnisteering
 
 Command-driven steering and wheel rolling, with optional bounded policy
