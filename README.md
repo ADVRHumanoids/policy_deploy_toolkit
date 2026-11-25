@@ -426,14 +426,14 @@ It needs the Python bindings (`BUILD_PYTHON_BINDINGS=ON`, or a separate build gi
 `POLICY_DEPLOY_TOOLKIT_PYTHONPATH`).
 
 ```bash
-ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml policies_dir:=<dir>   # all four, switchable
-ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml policy:=standup policies_dir:=<dir>   # one, with policy_deploy_node
+ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml                   # all four, switchable
+ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml policy:=standup   # one, with policy_deploy_node
 ros2 run policy_deploy_toolkit arrow_teleop.py    # arrows: velocity; 1..4: switch policy; 0: release
 ```
 
-`<dir>` holds the policy folders (`policy.onnx`, `deploy_metadata.yaml`) `kyon_ferk_locomotion_flat`,
-`kyon_ferk_standup`, `kyon_ferk_biped_locomotion_flat`, `kyon_ferk_getdown` (pre-release
-`antoplg-kyon-ferk-policies-v1` of `kyon_isaac`). Switch with `std_msgs/String` on `/policy_switcher/select`
+The policies are the examples `kyon_ferk_locomotion_flat`, `kyon_ferk_standup`, `kyon_ferk_biped_locomotion_flat`,
+`kyon_ferk_getdown` (each with `deploy_metadata.yaml`, `policy.onnx`, `policy.pt`); `policies_dir:=<dir>` reads the
+same folders from another directory. Switch with `std_msgs/String` on `/policy_switcher/select`
 (`ferk4`, `standup`, `biped`, `getdown`, `release`); velocity commands on `/policy_deploy_node/commands/base_velocity`.
 
 ## Omnisteering

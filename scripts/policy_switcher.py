@@ -15,7 +15,7 @@ Keys (in this terminal):
 
 With xbot2-core running (and MuJoCo in simulation), no other policy node:
     ros2 run policy_deploy_toolkit policy_switcher.py --policy NAME=DIR --policy NAME=DIR ...
-    ros2 run policy_deploy_toolkit policy_switcher.py --policies_dir DIR   # the four kyon ferk policies, unzipped in DIR
+    ros2 run policy_deploy_toolkit policy_switcher.py --policies_dir DIR   # the four kyon ferk policy folders in DIR
     ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml        # the same, driven by ROS topics
 Each DIR holds a policy's policy.onnx and deploy_metadata.yaml. Needs the toolkit's Python bindings
 (BUILD_PYTHON_BINDINGS=ON, see the README); a separate bindings build can be given with POLICY_DEPLOY_TOOLKIT_PYTHONPATH.
@@ -51,7 +51,7 @@ from xbot2_interface import pyxbot2_interface as xb  # noqa: E402
 
 import policy_deploy_toolkit as pdt  # noqa: E402
 
-# release zips (kyon_isaac pre-release antoplg-kyon-ferk-policies-v1): folder -> name
+# the kyon ferk policies: name -> folder (in the package's examples/, or in --policies_dir)
 RELEASE_FOLDERS = [
     ("ferk4", "kyon_ferk_locomotion_flat"),
     ("standup", "kyon_ferk_standup"),
@@ -277,7 +277,7 @@ def main():
     p.add_argument("--policy", action="append", default=[], metavar="NAME=EXPORTED_DIR",
                    help="A policy: name and its exported folder (policy.onnx + deploy_metadata.yaml). Repeatable; keys 1..9 in order.")
     p.add_argument("--policies_dir", type=Path, default=None,
-                   help="Load ferk4, standup, biped, getdown from the unzipped release folders in this directory.")
+                   help="Load ferk4, standup, biped, getdown from their folders in this directory (e.g. the package's examples).")
     p.add_argument("--ros_input", action="store_true", help="Take policy selection and velocity from ROS topics (no keyboard).")
     p.add_argument("--cmd_topic", default="/policy_deploy_node/commands/base_velocity")
     p.add_argument("--imu", default="imu_link")

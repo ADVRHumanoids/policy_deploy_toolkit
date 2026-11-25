@@ -13,13 +13,15 @@
            Velocity commands for both: geometry_msgs/Twist on /policy_deploy_node/commands/base_velocity
            (arrow_teleop.py, joystick with enable_joy:=true, or the lab's GUI).
 
-           policies_dir: the folder with the four unzipped release folders (kyon_ferk_policies.zip of the kyon_isaac
-           pre-release antoplg-kyon-ferk-policies-v1), default $KYON_FERK_POLICIES_DIR or ~/kyon_ferk_policies.
+           The policies are the package's examples (one folder each, with deploy_metadata.yaml, policy.onnx and
+           policy.pt, as for run_example.launch.xml): kyon_ferk_locomotion_flat (ferk4), kyon_ferk_standup (standup),
+           kyon_ferk_biped_locomotion_flat (biped), kyon_ferk_getdown (getdown). policies_dir:=DIR reads the same
+           folders from DIR instead.
 
            ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml [policy:=all] [policies_dir:=...] -->
 
       <arg name="policy" default="all" />
-      <arg name="policies_dir" default="$(env KYON_FERK_POLICIES_DIR $(env HOME)/kyon_ferk_policies)" />
+      <arg name="policies_dir" default="$(find-pkg-share policy_deploy_toolkit)/examples" />
       <arg name="start" default="" />  <!-- policy:=all only: policy to start right away (default: wait) -->
       <arg name="use_sim_time" default="false" />
       <arg name="enable_joy" default="false" />
