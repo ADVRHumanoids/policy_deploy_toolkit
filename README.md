@@ -417,24 +417,24 @@ group is published; the combined topics remain available.
 
 ## Several policies, switched live (kyon ferk policies)
 
-`policy_deploy_node` runs one policy per process: switching means stopping one node and starting another, and
-meanwhile XBot2 only holds the last references (a robot balancing upright falls). `scripts/policy_switcher.py`
-loads several policies and runs the selected one every control period through XBot2's Python `RobotInterface`,
-with this package's Python bindings (same observations, actions and gains as `policy_deploy_node`), switching
-between two control periods. Joints a policy does not act on are held at its default pose with its gains.
-It needs the Python bindings (`BUILD_PYTHON_BINDINGS=ON`, or a separate build given with
-`POLICY_DEPLOY_TOOLKIT_PYTHONPATH`).
+`deploy_policy_node` runs one policy per process: switching means stopping one node and starting another, and
+meanwhile XBot2 only holds the last references (a robot balancing upright falls). `policy_switcher_node`
+(`src/policy_switcher_node.cpp`) loads several policies and runs the selected one every control period exactly as
+`deploy_policy_node` does, switching between two control periods; the new policy starts from a clean state.
+Joints a policy does not act on are held at its default pose with its gains.
 
 ```bash
 ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml                   # all four, switchable
-ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml policy:=standup   # one, with policy_deploy_node
+ros2 launch policy_deploy_toolkit kyon_ferk_policies.launch.xml policy:=standup   # one, with deploy_policy_node
 ros2 run policy_deploy_toolkit arrow_teleop.py    # arrows: velocity; 1..4: switch policy; 0: release
+ros2 run policy_deploy_toolkit policy_switcher_node NAME=DIR [NAME=DIR ...]       # any set of policies
 ```
 
 The policies are the examples `kyon_ferk_locomotion_flat`, `kyon_ferk_standup`, `kyon_ferk_biped_locomotion_flat`,
 `kyon_ferk_getdown` (each with `deploy_metadata.yaml`, `policy.onnx`, `policy.pt`); `policies_dir:=<dir>` reads the
-same folders from another directory. Switch with `std_msgs/String` on `/policy_switcher/select`
-(`ferk4`, `standup`, `biped`, `getdown`, `release`); velocity commands on `/policy_deploy_node/commands/base_velocity`.
+same folders from another directory. Switch with `std_msgs/String` on `/policy_switcher/select` (`ferk4`, `standup`,
+`biped`, `getdown`, `release`, or `1`..`4` / `0`); the active one is on `/policy_switcher/active`. Velocity commands on
+`/policy_deploy_node/commands/base_velocity`, as for `deploy_policy_node`.
 
 ## Omnisteering
 

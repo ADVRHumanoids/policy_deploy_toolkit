@@ -150,39 +150,49 @@ if(BUILD_ROS_NODE)
         src/ros_sensor_receiver.cpp
     )
 
-    target_link_libraries(deploy_policy_node
-        PRIVATE
-        policy_deploy_toolkit
-        xbot2_diagnostics::xbot2_diagnostics_ros
-        xbot2::xbot2
-        rclcpp::rclcpp
-        tf2::tf2
-        tf2_ros::tf2_ros
-        std_msgs::std_msgs__rosidl_typesupport_cpp
-        geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
-        sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
+    # several policies, switched live (see src/policy_switcher_node.cpp)
+    add_executable(policy_switcher_node
+        src/policy_switcher_node.cpp
+        src/ros_adaptation_receiver.cpp
+        src/ros_command_receiver.cpp
+        src/ros_sensor_receiver.cpp
     )
 
-    if(xbot2_diagnostics_FOUND)
-        target_link_libraries(deploy_policy_node
+    foreach(node_target deploy_policy_node policy_switcher_node)
+        target_link_libraries(${node_target}
             PRIVATE
-            xbot2_diagnostics::xbot2_diagnostics
+            policy_deploy_toolkit
+            xbot2_diagnostics::xbot2_diagnostics_ros
+            xbot2::xbot2
+            rclcpp::rclcpp
+            tf2::tf2
+            tf2_ros::tf2_ros
+            std_msgs::std_msgs__rosidl_typesupport_cpp
+            geometry_msgs::geometry_msgs__rosidl_typesupport_cpp
+            sensor_msgs::sensor_msgs__rosidl_typesupport_cpp
         )
-        target_compile_definitions(deploy_policy_node
-            PRIVATE
-            -DHAS_XBOT2_DIAGNOSTICS
-        )
-    endif()
 
-    if(ENABLE_COMMAND_TIMESTAMPS)
-        target_compile_definitions(deploy_policy_node
-            PRIVATE
-            -DENABLE_COMMAND_TIMESTAMPS
-        )
-    endif()
+        if(xbot2_diagnostics_FOUND)
+            target_link_libraries(${node_target}
+                PRIVATE
+                xbot2_diagnostics::xbot2_diagnostics
+            )
+            target_compile_definitions(${node_target}
+                PRIVATE
+                -DHAS_XBOT2_DIAGNOSTICS
+            )
+        endif()
+
+        if(ENABLE_COMMAND_TIMESTAMPS)
+            target_compile_definitions(${node_target}
+                PRIVATE
+                -DENABLE_COMMAND_TIMESTAMPS
+            )
+        endif()
+    endforeach()
 
     # install node
-    install(TARGETS deploy_policy_node
+    install(TARGETS deploy_policy_node policy_switcher_node
         DESTINATION lib/${PROJECT_NAME}
     )
 
@@ -197,7 +207,7 @@ if(BUILD_ROS_NODE)
     )
 
     # install scripts (ros2 run policy_deploy_toolkit <script>)
-    install(PROGRAMS scripts/policy_switcher.py scripts/arrow_teleop.py
+    install(PROGRAMS scripts/arrow_teleop.py
         DESTINATION lib/${PROJECT_NAME}
     )
 

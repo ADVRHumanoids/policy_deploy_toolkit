@@ -7,7 +7,7 @@ never times out while this runs:
     left / right   turn left / right (yaw rate +/- 0.1 rad/s)
     a / d          sideways left / right (+/- 0.1 m/s)
     space          stop (all zero)
-    1..4           switch policy (policy_switcher.py --ros_input / kyon_ferk_policies.launch.xml):
+    1..4           switch policy (policy_switcher_node / kyon_ferk_policies.launch.xml):
                    1 = 4-leg walking, 2 = stand-up, 3 = 2-leg walking, 4 = get-down;  0 = release
     q              quit (sends a stop first)
 

@@ -3,7 +3,7 @@
            in the style of policy_deploy_toolkit's run_example.launch.xml. Start XBot2 (and MuJoCo in simulation)
            first, with the robot standing in ferk and no homing plugin.
 
-           policy:=all (default)   all four through scripts/policy_switcher.py, which switches between them
+           policy:=all (default)   all four through policy_switcher_node, which switches between them
                                    live (no gap in control). Switch by publishing once on /policy_switcher/select a
                                    std_msgs/msg/String with the policy name (ferk4 | standup | biped | getdown |
                                    release, or 1..4 / 0; see the README), or with the number
@@ -30,10 +30,11 @@
       <let name="folder"
            value="$(eval &quot;{'ferk4': 'kyon_ferk_locomotion_flat', 'standup': 'kyon_ferk_standup', 'biped': 'kyon_ferk_biped_locomotion_flat', 'getdown': 'kyon_ferk_getdown'}.get('$(var policy)', 'all')&quot;)" />
 
-      <!-- all four: live switcher (policy_deploy_toolkit Python bindings, see policy_switcher.py) -->
-      <node pkg="policy_deploy_toolkit" exec="policy_switcher.py" output="screen" if="$(var all)"
-            args="--ros_input --policies_dir $(var policies_dir) --start=$(var start)">
-            <env name="PYTHONUNBUFFERED" value="1" />
+      <!-- all four: live switcher (src/policy_switcher_node.cpp); keys 1..4 follow this order -->
+      <node pkg="policy_deploy_toolkit" exec="policy_switcher_node" output="screen" if="$(var all)"
+            args="ferk4=$(var policies_dir)/kyon_ferk_locomotion_flat standup=$(var policies_dir)/kyon_ferk_standup biped=$(var policies_dir)/kyon_ferk_biped_locomotion_flat getdown=$(var policies_dir)/kyon_ferk_getdown">
+            <param name="start" value="$(var start)" />
+            <param name="use_sim_time" value="$(var use_sim_time)" />
       </node>
 
       <!-- one policy: the lab's node, as run_example.launch.xml -->
