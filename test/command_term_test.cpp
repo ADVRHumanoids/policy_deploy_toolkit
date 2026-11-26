@@ -33,6 +33,18 @@ ranges:
         config);
 }
 
+std::unique_ptr<XBot::policy::CommandTerm> make_velocity_command_from_ranges(const std::string& ranges)
+{
+    YAML::Node config;
+    config["ranges"] = YAML::Load(ranges);
+    return XBot::policy::CommandTerm::create(
+        "base_velocity",
+        kVelocityCommandClass,
+        XBot::policy::RobotInfo{},
+        XBot::policy::PolicyInfo{},
+        config);
+}
+
 bool approx(double lhs, double rhs)
 {
     return std::abs(lhs - rhs) < 1e-12;
@@ -60,6 +72,37 @@ int main()
             make_velocity_command(cutoff);
         }
         catch(const std::runtime_error&)
+        {
+            rejected = true;
+        }
+        assert(rejected);
+    }
+
+    // Size and field order are fixed by the command class, not by the ranges map.
+    const std::vector<std::string> xyz{"lin_vel_x", "lin_vel_y", "ang_vel_z"};
+    for(const auto* ranges : {
+            "{ang_vel_z: [-1, 1], lin_vel_y: [-2, 2], lin_vel_x: [-3, 3]}",
+            "{lin_vel_x: [-3, 3], lin_vel_y: [-2, 2], ang_vel_z: [-1, 1], heading: null}",
+            "{lin_vel_x: [-3, 3], lin_vel_y: [-2, 2], ang_vel_z: [-1, 1], heading: [-3.14, 3.14]}"})
+    {
+        auto c = make_velocity_command_from_ranges(ranges);
+        assert(c->size() == 3);
+        assert(c->spec().field_names == xyz);
+        assert(approx(c->spec().max(0), 3.0));
+        assert(approx(c->spec().max(1), 2.0));
+        assert(approx(c->spec().max(2), 1.0));
+    }
+    for(const auto* ranges : {
+            "{lin_vel_x: [-1, 1], lin_vel_y: [-1, 1]}",
+            "{lin_vel_x: [-1, 1], lin_vel_y: [-1, 1], ang_vel_z: null}",
+            "{lin_vel_x: [-1, 1], lin_vel_y: [-1, 1], ang_vel_z: [-1, 1], lin_vel_z: [-1, 1]}"})
+    {
+        bool rejected = false;
+        try
+        {
+            make_velocity_command_from_ranges(ranges);
+        }
+        catch(const std::exception&)
         {
             rejected = true;
         }

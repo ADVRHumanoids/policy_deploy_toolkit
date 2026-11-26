@@ -217,17 +217,13 @@ KyonIsaacVelocityCommand::KyonIsaacVelocityCommand(RobotInfo robot_info,
             std::format("Command '{}' must define a ranges map", _spec.name));
     }
     
-    std::vector<std::string> fields;
-    for(auto field : ranges)
-    {
-        if(!field.second.IsSequence() || field.second.size() != 2)
-        {
-            std::cout << std::format("Command '{}' range '{}' must be a sequence of two values", _spec.name, field.first.as<std::string>()) << std::endl;
-            continue;
-        }
-
-        fields.push_back(field.first.as<std::string>());
-    }
+    // IsaacLab velocity commands are always [lin_vel_x, lin_vel_y, ang_vel_z] in the
+    // base frame; 'heading' (if present) is only used to generate ang_vel_z and is
+    // not part of the command tensor, so it is accepted and ignored.
+    const std::vector<std::string> fields{"lin_vel_x", "lin_vel_y", "ang_vel_z"};
+    auto allowed_fields = fields;
+    allowed_fields.push_back("heading");
+    reject_unknown_ranges(ranges, _spec.name, allowed_fields);
 
     Eigen::VectorXd min(fields.size());
     Eigen::VectorXd max(fields.size());
